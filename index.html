@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Sauna Breathing</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" sizes="512x512" href="icons/icon-512.png">
+  <style>
+    :root{ --bg:#0b1020; --card:#121a33; --accent:#22d3ee; --accent2:#a78bfa; --text:#e6f0ff; --muted:#90a4c8; --good:#34d399; --warn:#f59e0b; --bad:#ef4444; --progress:0%; }
+    *{box-sizing:border-box} html,body{height:100%} body{margin:0; font-family:system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji"; color:var(--text); background: radial-gradient(1200px 800px at 80% -20%, #1e293b 0%, transparent 50%), radial-gradient(900px 600px at -10% 120%, #111827 0%, transparent 50%), var(--bg);}
+    .app{max-width:900px; margin:0 auto; padding:16px; padding-bottom:124px} header{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0}
+    header h1{font-size:22px; margin:0; letter-spacing:.5px} header .actions{display:flex; gap:8px}
+    button,.btn{appearance:none; border:0; background:linear-gradient(180deg,#1f2a4a,#10162b); color:var(--text); padding:10px 14px; border-radius:12px; font-weight:600; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);}
+    button:disabled{opacity:.55; cursor:not-allowed} .btn-ghost{background:transparent; border:1px solid rgba(255,255,255,.12)}
+    .grid{display:grid; gap:12px} .card{background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:14px; box-shadow:0 20px 40px rgba(0,0,0,.25)}
+    .row{display:flex; align-items:center; justify-content:space-between; gap:12px} .label{font-size:12px; color:var(--muted); letter-spacing:.3px} .value{font-weight:700}
+    input[type="range"]{width:100%} input[type="number"]{width:90px; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.06); color:var(--text)}
+    .circle-wrap{display:grid; place-items:center; margin:18px 0} .circle{width:min(80vw,420px); height:min(80vw,420px); border-radius:50%; background: radial-gradient(closest-side, rgba(34,211,238,.25), rgba(167,139,250,.12) 60%, transparent 61%), conic-gradient(from 270deg, var(--accent) var(--progress), rgba(255,255,255,.06) 0%); display:grid; place-items:center; position:relative; transition:filter .3s ease; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 12px 60px rgba(34,211,238,.15), inset 0 0 80px rgba(167,139,250,.12);}
+    .circle-inner{width:85%; height:85%; border-radius:50%; background: radial-gradient(120% 100% at 50% 0%, rgba(167,139,250,.16), rgba(34,211,238,.08)); display:grid; place-items:center; text-align:center; padding:12px;}
+    .phase{font-size:14px; color:var(--muted); letter-spacing:.25px} .count{font-size:56px; font-weight:900; line-height:1.05} .hint{font-size:12px; color:var(--muted)}
+    .chips{display:flex; flex-wrap:wrap; gap:8px} .chip{padding:8px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); cursor:pointer; font-weight:600} .chip.active{outline:2px solid var(--accent)}
+    .twocol{display:grid; grid-template-columns:1fr 1fr; gap:12px} .footer{position:fixed; bottom:0; left:0; right:0; backdrop-filter: blur(10px); background:linear-gradient(180deg, rgba(2,6,23,0), rgba(2,6,23,.85)); padding:12px 16px; border-top:1px solid rgba(255,255,255,.08)}
+    .grow{flex:1} .small{font-size:12px} .hidden{display:none} .danger{background:linear-gradient(180deg,#3b1111,#220b0b); border:1px solid rgba(255,255,255,.06)} .accent{background:linear-gradient(180deg,#164e63,#0b3742)} .timer-pill{font-variant-numeric:tabular-nums; padding:6px 10px; border-radius:999px; background:rgba(20,184,166,.12); border:1px solid rgba(20,184,166,.35)}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🧖 Sauna Breathing</h1>
+      <div class="actions">
+        <span id="timerStatus" class="timer-pill hidden">⏱ <strong id="timerMMSS">00:00</strong> <span id="timerSet">(Set 0/0)</span></span>
+        <button id="btnFullscreen" class="btn-ghost" title="Fullscreen">⤢</button>
+        <button id="btnWakeLock" class="btn-ghost" title="Keep Screen Awake">🔆</button>
+        <button id="btnInstall" class="btn-ghost" title="Add to Home Screen" hidden>⬇️ Install</button>
+      </div>
+    </header>
+
+    <section class="card circle-wrap">
+      <div class="circle" id="circle">
+        <div class="circle-inner">
+          <div class="phase" id="phase">Ready</div>
+          <div class="count" id="counter">0</div>
+          <div class="hint" id="roundsHint">Rounds: 0 • Cycle: 0</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <div class="chips" id="presets">
+          <div class="chip" data-preset='{"name":"Box 4-4-4-4","inhale":4,"hold1":4,"exhale":4,"hold2":4}'>Box 4‑4‑4‑4</div>
+          <div class="chip" data-preset='{"name":"4‑7‑8","inhale":4,"hold1":7,"exhale":8,"hold2":0}'>4‑7‑8</div>
+          <div class="chip" data-preset='{"name":"Sauna Calm","inhale":5,"hold1":0,"exhale":7,"hold2":0}'>Sauna Calm</div>
+          <div class="chip" data-preset='{"name":"Wim Hof (guided)","inhale":2,"hold1":0,"exhale":2,"hold2":0,"cycles":30,"holdAfter":60}'>Wim Hof (guided)</div>
+          <div class="chip" data-preset='{"name":"Custom"}'>Custom</div>
+        </div>
+      </div>
+
+      <div class="card grid">
+        <div class="row"><span class="label">Inhale (sec)</span><span class="value" id="vIn">5</span></div>
+        <input class="range" id="rIn" type="range" min="1" max="12" value="5" />
+        <div class="row"><span class="label">Hold after inhale (sec)</span><span class="value" id="vH1">0</span></div>
+        <input class="range" id="rH1" type="range" min="0" max="20" value="0" />
+        <div class="row"><span class="label">Exhale (sec)</span><span class="value" id="vEx">7</span></div>
+        <input class="range" id="rEx" type="range" min="2" max="20" value="7" />
+        <div class="row"><span class="label">Hold after exhale (sec)</span><span class="value" id="vH2">0</span></div>
+        <input class="range" id="rH2" type="range" min="0" max="20" value="0" />
+        <div class="row">
+          <label class="label">Cycles per round</label>
+          <input id="cycles" type="number" min="1" max="120" value="12"/>
+          <label class="label">Rounds</label>
+          <input id="rounds" type="number" min="1" max="20" value="3"/>
+        </div>
+      </div>
+
+      <div class="twocol">
+        <div class="card grid">
+          <div class="row"><span class="label">Ambient sound</span><label><input id="chkAmbient" type="checkbox" checked> On</label></div>
+          <div class="row"><span class="label">Ambient volume</span><input id="volAmbient" type="range" min="0" max="1" step="0.01" value="0.25" class="range"></div>
+          <div class="row"><span class="label">Cue beeps</span><label><input id="chkBeeps" type="checkbox" checked> On</label></div>
+          <div class="row"><span class="label">Voice counts</span><label><input id="chkVoice" type="checkbox"> On</label></div>
+          <div class="row"><span class="label">Vibrate on phase</span><label><input id="chkVibrate" type="checkbox" checked> On</label></div>
+        </div>
+        <div class="card grid">
+          <div class="row"><span class="label">Countdown style</span>
+            <div>
+              <label><input type="radio" name="style" value="numbers" checked> Numbers</label>
+              <label style="margin-left:10px"><input type="radio" name="style" value="bar"> Ring</label>
+            </div>
+          </div>
+          <div class="row"><span class="label">Theme glow</span><input id="glow" type="range" min="0" max="1" step="0.01" value="0.25" class="range"></div>
+          <div class="row"><span class="label">Show safety tip</span><label><input id="chkSafety" type="checkbox" checked> On</label></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:6px 0 12px 0">⏱ Sauna Timer</h3>
+        <div class="row" style="flex-wrap:wrap; gap:12px">
+          <div><span class="label">Duration (min)</span><br><input id="timerMinutes" type="number" min="1" max="60" value="12"></div>
+          <div><span class="label">Sets</span><br><input id="timerSets" type="number" min="1" max="20" value="3"></div>
+          <div><span class="label">Rest between (min)</span><br><input id="timerRest" type="number" min="0" max="20" value="2"></div>
+          <div class="row" style="gap:8px; margin-left:auto">
+            <button id="btnTimerStart" class="accent">Start Timer</button>
+            <button id="btnTimerPause" disabled>Pause</button>
+            <button id="btnTimerStop" class="danger" disabled>Stop</button>
+          </div>
+        </div>
+        <div class="small" style="margin-top:8px; color:var(--muted)">Timer runs independently so you can breathe with guidance while it counts your sauna set. You’ll hear a chime at each stage.</div>
+      </div>
+
+      <div id="safety" class="card"><strong>Safety:</strong> Sit down between sauna benches and avoid breath-holds if you feel light‑headed. Never use this app while driving.</div>
+    </section>
+  </div>
+
+  <div class="footer row">
+    <div class="row grow" style="gap:8px">
+      <button id="btnStart" class="accent">▶ Start</button>
+      <button id="btnPause" disabled>⏸️ Pause</button>
+      <button id="btnStop" class="danger" disabled>■ Stop</button>
+    </div>
+    <div class="row" style="gap:8px">
+      <button id="btnReset" class="btn-ghost">Reset</button>
+      <button id="btnBig" class="btn-ghost" title="Big numbers">🔍</button>
+    </div>
+  </div>
+
+  <script>
+  const els = {
+    circle: document.querySelector('#circle'), counter: document.querySelector('#counter'), phase: document.querySelector('#phase'), roundsHint: document.querySelector('#roundsHint'),
+    rIn: document.querySelector('#rIn'), rH1: document.querySelector('#rH1'), rEx: document.querySelector('#rEx'), rH2: document.querySelector('#rH2'), vIn: document.querySelector('#vIn'), vH1: document.querySelector('#vH1'), vEx: document.querySelector('#vEx'), vH2: document.querySelector('#vH2'),
+    cycles: document.querySelector('#cycles'), rounds: document.querySelector('#rounds'),
+    btnStart: document.querySelector('#btnStart'), btnPause: document.querySelector('#btnPause'), btnStop: document.querySelector('#btnStop'), btnReset: document.querySelector('#btnReset'),
+    btnFullscreen: document.querySelector('#btnFullscreen'), btnWakeLock: document.querySelector('#btnWakeLock'), btnInstall: document.querySelector('#btnInstall'), btnBig: document.querySelector('#btnBig'),
+    chkAmbient: document.querySelector('#chkAmbient'), volAmbient: document.querySelector('#volAmbient'), chkBeeps: document.querySelector('#chkBeeps'), chkVibrate: document.querySelector('#chkVibrate'), chkVoice: document.querySelector('#chkVoice'),
+    glow: document.querySelector('#glow'), safety: document.querySelector('#safety'), chkSafety: document.querySelector('#chkSafety'),
+    timerMinutes: document.querySelector('#timerMinutes'), timerSets: document.querySelector('#timerSets'), timerRest: document.querySelector('#timerRest'),
+    btnTimerStart: document.querySelector('#btnTimerStart'), btnTimerPause: document.querySelector('#btnTimerPause'), btnTimerStop: document.querySelector('#btnTimerStop'),
+    timerStatus: document.querySelector('#timerStatus'), timerMMSS: document.querySelector('#timerMMSS'), timerSet: document.querySelector('#timerSet')
+  };
+
+  let running=false, paused=false, loopHandle=null, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0;
+  let wakeLock=null, deferredPrompt=null, big=false;
+
+  const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
+
+  const voice={enabled:false,say(txt){ if(!this.enabled) return; try{ const u=new SpeechSynthesisUtterance(txt); u.rate=0.95; speechSynthesis.speak(u);}catch(e){} }};
+
+  const audio={ctx:null, master:null, pads:[], beepOsc:null, beepGain:null, chimeOsc:null, chimeGain:null,
+    init(){ if(this.ctx) return; this.ctx=new (window.AudioContext||window.webkitAudioContext)(); this.master=this.ctx.createGain(); this.master.gain.value=+els.volAmbient.value; this.master.connect(this.ctx.destination);
+      const notes=[174.61,220.00,261.63]; const lfo=this.ctx.createOscillator(); const lfoGain=this.ctx.createGain(); lfo.frequency.value=0.06; lfoGain.gain.value=0.25; lfo.connect(lfoGain);
+      notes.forEach((f,i)=>{ const o=this.ctx.createOscillator(); const g=this.ctx.createGain(); o.type='sine'; o.frequency.value=f; o.detune.value=(i-1)*6; g.gain.value=0.08; o.connect(g); g.connect(this.master); lfoGain.connect(g.gain); o.start(); this.pads.push({o,g}); }); lfo.start();
+      this.beepOsc=this.ctx.createOscillator(); this.beepGain=this.ctx.createGain(); this.beepOsc.type='sine'; this.beepOsc.frequency.value=880; this.beepGain.gain.value=0; this.beepOsc.connect(this.beepGain); this.beepGain.connect(this.ctx.destination); this.beepOsc.start();
+      this.chimeOsc=this.ctx.createOscillator(); this.chimeGain=this.ctx.createGain(); this.chimeOsc.type='triangle'; this.chimeOsc.frequency.value=660; this.chimeGain.gain.value=0; this.chimeOsc.connect(this.chimeGain); this.chimeGain.connect(this.ctx.destination); this.chimeOsc.start();
+    },
+    setAmbient(on){ if(!this.ctx) return; this.master.gain.value=on? +els.volAmbient.value:0; }, setAmbientVol(v){ if(!this.ctx) return; this.master.gain.value=+v; },
+    beep(){ if(!els.chkBeeps.checked||!this.ctx) return; const now=this.ctx.currentTime; this.beepOsc.frequency.setValueAtTime(1200,now); this.beepGain.gain.cancelScheduledValues(now); this.beepGain.gain.setValueAtTime(0.0001,now); this.beepGain.gain.exponentialRampToValueAtTime(0.25,now+0.01); this.beepGain.gain.exponentialRampToValueAtTime(0.0001,now+0.18); },
+    chime(){ if(!this.ctx) return; const now=this.ctx.currentTime; this.chimeOsc.frequency.setValueAtTime(660,now); this.chimeOsc.frequency.exponentialRampToValueAtTime(440,now+1.2); this.chimeGain.gain.cancelScheduledValues(now); this.chimeGain.gain.setValueAtTime(0.0001,now); this.chimeGain.gain.exponentialRampToValueAtTime(0.35,now+0.02); this.chimeGain.gain.exponentialRampToValueAtTime(0.0001,now+1.4); }
+  };
+
+  function q(s){ return document.querySelector(s); }
+  function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+  function vibrate(ms){ if(els.chkVibrate.checked && navigator.vibrate) navigator.vibrate(ms); }
+  function updateVals(){ els.vIn.textContent=els.rIn.value; els.vH1.textContent=els.rH1.value; els.vEx.textContent=els.rEx.value; els.vH2.textContent=els.rH2.value; document.documentElement.style.setProperty('--progress','0%'); }
+
+  document.querySelector('#presets').addEventListener('click', e=>{ const chip=e.target.closest('.chip'); if(!chip) return; [...document.querySelector('#presets').children].forEach(c=>c.classList.remove('active')); chip.classList.add('active'); const p=JSON.parse(chip.dataset.preset); if(p.name==='Custom') return; if(p.inhale!=null) els.rIn.value=p.inhale; if(p.hold1!=null) els.rH1.value=p.hold1; if(p.exhale!=null) els.rEx.value=p.exhale; if(p.hold2!=null) els.rH2.value=p.hold2; if(p.cycles) els.cycles.value=p.cycles; if(p.holdAfter) window._holdAfter=p.holdAfter; else window._holdAfter=null; updateVals(); });
+
+  [els.rIn,els.rH1,els.rEx,els.rH2].forEach(r=>r.addEventListener('input', updateVals));
+  els.volAmbient.addEventListener('input', e=>audio.setAmbientVol(e.target.value));
+  els.chkAmbient.addEventListener('change', e=>audio.setAmbient(e.target.checked));
+  els.chkSafety.addEventListener('change', ()=>els.safety.style.display=els.chkSafety.checked?'block':'none');
+  els.glow.addEventListener('input', e=>{ document.querySelector('#circle').style.filter=`drop-shadow(0 0 ${e.target.value*60}px rgba(34,211,238,.6))`; });
+  document.querySelectorAll('input[name="style"]').forEach(r=>r.addEventListener('change', e=>{ /* style swap hook */ }));
+  els.chkVoice.addEventListener('change', ()=>{ voice.enabled=els.chkVoice.checked; });
+
+  els.btnStart.addEventListener('click', start);
+  els.btnPause.addEventListener('click', togglePause);
+  els.btnStop.addEventListener('click', stop);
+  els.btnReset.addEventListener('click', ()=>{ if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateScreen('Ready',0); });
+  els.btnBig.addEventListener('click', ()=>{ big=!big; els.counter.style.fontSize=big?'92px':'56px'; });
+
+  els.btnFullscreen.addEventListener('click', ()=>{ const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }});
+
+  els.btnWakeLock.addEventListener('click', async ()=>{ try{ if(!wakeLock){ wakeLock=await navigator.wakeLock.request('screen'); els.btnWakeLock.textContent='🔒'; wakeLock.addEventListener('release',()=>{ els.btnWakeLock.textContent='🔆'; wakeLock=null; }); } else { wakeLock.release?.(); } }catch(e){ alert('Wake Lock not supported on this device'); } });
+
+  window.addEventListener('beforeinstallprompt',(e)=>{ e.preventDefault(); deferredPrompt=e; els.btnInstall.hidden=false; });
+  els.btnInstall.addEventListener('click', async ()=>{ if(!deferredPrompt) return; deferredPrompt.prompt(); const {outcome}=await deferredPrompt.userChoice; if(outcome==='accepted'){ els.btnInstall.hidden=true; } deferredPrompt=null; });
+
+  function totalPhaseSeconds(){ const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value]; return arr.map((v,i)=>({dur:v,...phasesBase[i]})).filter(p=>p.dur>0||p.key==='inhale'||p.key==='exhale'); }
+
+  async function start(){ if(running){ return; } try{ audio.init(); audio.setAmbient(els.chkAmbient.checked); voice.enabled=els.chkVoice.checked; }catch(e){}
+    running=true; paused=false; els.btnStart.disabled=true; els.btnPause.disabled=false; els.btnStop.disabled=false;
+    round=1; cycle=1; phaseIndex=0; phaseTimeLeft=totalPhaseSeconds()[0].dur; updateHUD(); loop(); if('mediaSession' in navigator){ navigator.mediaSession.metadata=new MediaMetadata({title:'Sauna Breathing',artist:'Guided',album:'Ambient',artwork:[]}); navigator.mediaSession.setActionHandler('play',()=>{ if(!running) start(); else if(paused) togglePause(); }); navigator.mediaSession.setActionHandler('pause',()=>{ if(running && !paused) togglePause(); }); }
+  }
+
+  function loop(){ if(!running) return; const seq=totalPhaseSeconds(); const phase=seq[phaseIndex % seq.length]; if(!paused){ phaseTimeLeft-=0.1; updateScreen(phase.label, Math.max(0, Math.ceil(phaseTimeLeft))); progressUpdate(phase); if(phaseTimeLeft<=0){ nextPhase(seq); } } loopHandle=setTimeout(loop,100); }
+
+  function nextPhase(seq){ audio.beep(); vibrate(30); phaseIndex++; if(phaseIndex % seq.length===0){ cycle++; if(cycle>+els.cycles.value){ round++; if(round>+els.rounds.value){ if(window._holdAfter){ holdPhase(window._holdAfter); window._holdAfter=null; return; } return stop(); } cycle=1; } } const next=seq[phaseIndex % seq.length]; phaseTimeLeft=next.dur; if(voice.enabled){ voice.say(next.label); } }
+
+  async function holdPhase(seconds){ const label='Long hold'; updateScreen(label,seconds); if(voice.enabled){ voice.say('Long hold'); } while(seconds>0 && running && !paused){ await sleep(1000); seconds--; updateScreen(label,seconds); } stop(); }
+
+  function togglePause(){ paused=!paused; els.btnPause.textContent= paused? '▶ Resume':'⏸️ Pause'; if(!paused){ loop(); } }
+  function stop(){ running=false; paused=false; clearTimeout(loopHandle); updateScreen('Done',0); els.btnStart.disabled=false; els.btnPause.disabled=true; els.btnStop.disabled=true; }
+  function updateHUD(){ els.roundsHint.textContent=`Rounds: ${round} • Cycle: ${cycle}`; }
+  function updateScreen(phaseLabel,count){ els.phase.textContent=phaseLabel; els.counter.textContent=count; updateHUD(); }
+  function progressUpdate(){ const seq=totalPhaseSeconds(); const total=seq.reduce((a,b)=>a+b.dur,0); const elapsedInCycle=(seq.slice(0, phaseIndex % seq.length).reduce((a,b)=>a+b.dur,0)) + (seq[phaseIndex % seq.length].dur - Math.max(0, phaseTimeLeft)); const pct=Math.max(0, Math.min(100,(elapsedInCycle/total)*100)); document.documentElement.style.setProperty('--progress', pct+'%'); }
+
+  setInterval(()=>{ if(!running||paused||!voice.enabled) return; const n=+els.counter.textContent||0; if(n>0&&n<=5){ voice.say(String(n)); } },1000);
+
+  // ===== Independent Sauna Timer =====
+  let timerRunning=false, timerPaused=false, timerInterval=null, timerMsLeft=0, timerSetIndex=0, timerMode='work';
+
+  function formatMMSS(ms){ const s=Math.max(0,Math.ceil(ms/1000)); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; }
+
+  function updateTimerHUD(){ els.timerMMSS.textContent=formatMMSS(timerMsLeft); const totalSets=+els.timerSets.value; els.timerSet.textContent=`(Set ${Math.min(timerSetIndex+1,totalSets)}/${totalSets}${timerMode==='rest'?' • Rest':''})`; els.timerStatus.classList.remove('hidden'); }
+
+  function startTimer(){ if(timerRunning) return; try{ audio.init(); }catch(e){} timerRunning=true; timerPaused=false; els.btnTimerStart.disabled=true; els.btnTimerPause.disabled=false; els.btnTimerStop.disabled=false; timerMode='work'; timerSetIndex=0; timerMsLeft=+els.timerMinutes.value*60*1000; updateTimerHUD(); tickTimer(); timerInterval=setInterval(tickTimer,200); }
+
+  function tickTimer(){ if(!timerRunning||timerPaused) return; timerMsLeft-=200; if(timerMsLeft<=0){
+      audio.chime(); vibrate(70);
+      if(timerMode==='work'){
+        const restMin=+els.timerRest.value; const totalSets=+els.timerSets.value; if(restMin>0){ timerMode='rest'; timerMsLeft=restMin*60*1000; updateTimerHUD(); return; } else {
+          timerSetIndex++; if(timerSetIndex>=totalSets){ return stopTimer(); } timerMode='work'; timerMsLeft=+els.timerMinutes.value*60*1000; updateTimerHUD(); return; }
+      } else {
+        const totalSets=+els.timerSets.value; timerSetIndex++; if(timerSetIndex>=totalSets){ return stopTimer(); } timerMode='work'; timerMsLeft=+els.timerMinutes.value*60*1000; }
+    }
+    updateTimerHUD();
+  }
+
+  function pauseTimer(){ if(!timerRunning) return; timerPaused=!timerPaused; els.btnTimerPause.textContent= timerPaused? 'Resume':'Pause'; }
+  function stopTimer(){ timerRunning=false; timerPaused=false; clearInterval(timerInterval); els.btnTimerStart.disabled=false; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; els.timerStatus.classList.add('hidden'); }
+
+  els.btnTimerStart.addEventListener('click', startTimer);
+  els.btnTimerPause.addEventListener('click', pauseTimer);
+  els.btnTimerStop.addEventListener('click', stopTimer);
+
+  updateVals();
+
+  // Register a real service worker file (works on GitHub Pages)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  }
+
+  document.addEventListener('keydown',(e)=>{ if(e.key===' '){ e.preventDefault(); if(!running) start(); else togglePause(); } if(e.key==='Escape'){ stop(); stopTimer(); } });
+  </script>
+</body>
+</html>
