@@ -236,7 +236,8 @@
       btnStart: $('#btnStart'), btnPause: $('#btnPause'), btnStop: $('#btnStop'), btnReset: $('#btnReset'),
       timerMinutes: $('#timerMinutes'), timerSets: $('#timerSets'), timerRest: $('#timerRest'),
       btnTimerStart: $('#btnTimerStart'), btnTimerPause: $('#btnTimerPause'), btnTimerStop: $('#btnTimerStop'),
-      toast: $('#toast')
+      toast: $('#toast'),
+      presets: document.getElementById('presets')
     };
 
     // ===== Helpers =====
@@ -247,16 +248,80 @@
       window._toastT = setTimeout(()=>{ els.toast.style.display='none'; }, ms);
     }
     function ensurePlayMutedFirst(){
-      // Try unmuted; if blocked, play muted; after first gesture, restore desired mute state
       els.bgVideo.muted = !els.chkSceneAudio.checked;
       const p = els.bgVideo.play();
       if(p && typeof p.catch === 'function'){
         p.catch(()=>{
           els.bgVideo.muted = true;
           els.bgVideo.play().catch(()=>{});
-          // will unmute on first gesture if needed
         });
       }
+    }
+
+    // ===== Presets (FIXED) =====
+    const PRESET_STORAGE_KEY = 'ms.preset';
+    function updateValLabels(){
+      els.vIn.textContent = els.rIn.value;
+      els.vH1.textContent = els.rH1.value;
+      els.vEx.textContent = els.rEx.value;
+      els.vH2.textContent = els.rH2.value;
+    }
+    ['input','change'].forEach(evt => {
+      [els.rIn, els.rH1, els.rEx, els.rH2].forEach(r => r.addEventListener(evt, updateValLabels));
+      [els.rIn, els.rH1, els.rEx, els.rH2, els.cycles, els.rounds].forEach(ctrl => ctrl.addEventListener(evt, ()=>{
+        // deselect active chip when user tweaks values
+        [...els.presets.children].forEach(c=>c.classList.remove('active'));
+        // persist as "Custom"
+        savePreset({ name:'Custom',
+          inhale:+els.rIn.value, hold1:+els.rH1.value, exhale:+els.rEx.value, hold2:+els.rH2.value,
+          cycles:+els.cycles.value, rounds:+els.rounds.value
+        });
+      }));
+    });
+    function applyPreset(p){
+      if (p.inhale != null) els.rIn.value = p.inhale;
+      if (p.hold1  != null) els.rH1.value = p.hold1;
+      if (p.exhale != null) els.rEx.value = p.exhale;
+      if (p.hold2  != null) els.rH2.value = p.hold2;
+      if (p.cycles != null) els.cycles.value = p.cycles;
+      if (p.rounds != null) els.rounds.value = p.rounds;
+      updateValLabels();
+      showToast(p.name || 'Preset', 700);
+    }
+    function savePreset(p){ try{ localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(p)); }catch{} }
+    function loadPreset(){
+      try{
+        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+        if(raw){
+          const p = JSON.parse(raw);
+          applyPreset(p);
+          // Try to mark matching chip active
+          [...els.presets.children].forEach(c => {
+            const data = JSON.parse(c.dataset.preset);
+            if (data.name === p.name && p.name !== 'Custom'){ c.classList.add('active'); }
+          });
+        } else {
+          updateValLabels();
+        }
+      }catch{ updateValLabels(); }
+    }
+    if (els.presets){
+      els.presets.addEventListener('click', (e)=>{
+        const chip = e.target.closest('.chip'); if(!chip) return;
+        [...els.presets.children].forEach(c=>c.classList.remove('active'));
+        chip.classList.add('active');
+        const p = JSON.parse(chip.dataset.preset);
+        if(p.name === 'Custom'){
+          // Save current as custom
+          savePreset({ name:'Custom',
+            inhale:+els.rIn.value, hold1:+els.rH1.value, exhale:+els.rEx.value, hold2:+els.rH2.value,
+            cycles:+els.cycles.value, rounds:+els.rounds.value
+          });
+        } else {
+          applyPreset(p);
+          savePreset(p);
+        }
+      });
     }
 
     // ===== Audio context for beeps/voice/ambient =====
@@ -343,10 +408,9 @@
         els.glow.classList.remove('glow-active'); void els.glow.offsetWidth; els.glow.classList.add('glow-active');
 
         els.bgVideo.style.opacity = 0;
-        // half-glow delay to sync swap
         await new Promise(r=>setTimeout(r, 350));
 
-        const vtag='?v=24';
+        const vtag='?v=25';
         let triedMp4=false; let resolved=false;
 
         function cleanup(){
@@ -359,7 +423,6 @@
           if(resolved) return; resolved=true; cleanup();
           els.bgVideo.style.display='';
           ensurePlayMutedFirst();
-          // audio mode
           els.bgVideo.muted = !els.chkSceneAudio.checked;
           try{ await rampVolume(els.bgVideo, parseFloat(els.volScene.value||'0.5'), 500); }catch{}
           els.bgVideo.style.opacity=1;
@@ -389,39 +452,15 @@
     }
 
     // ===== Bindings =====
-    // Dim slider
-    els.dimSlider.addEventListener('input', ()=>{
-      document.documentElement.style.setProperty('--dim', els.dimSlider.value);
-      savePrefs();
-    });
-
-    // Scene volume slider
-    els.volScene.addEventListener('input', ()=>{
-      const v = parseFloat(els.volScene.value || '0.5');
-      els.bgVideo.volume = v;
-      savePrefs();
-    });
-
-    // Scene audio toggle
-    els.chkSceneAudio.addEventListener('change', ()=>{
-      els.bgVideo.muted = !els.chkSceneAudio.checked;
-      ensurePlayMutedFirst();
-      savePrefs();
-    });
-
-    // Ambient toggle/volume
-    els.chkAmbient.addEventListener('change', ()=>{
-      if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; }
-      else { stopAmbient(); }
-      savePrefs();
-    });
+    els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
+    els.volScene.addEventListener('input', ()=>{ els.bgVideo.volume = parseFloat(els.volScene.value||'0.5'); savePrefs(); });
+    els.chkSceneAudio.addEventListener('change', ()=>{ els.bgVideo.muted = !els.chkSceneAudio.checked; ensurePlayMutedFirst(); savePrefs(); });
+    els.chkAmbient.addEventListener('change', ()=>{ if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; } else { stopAmbient(); } savePrefs(); });
     els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value||'0.25'); savePrefs(); });
-
-    // Theme + video toggles
     els.selTheme.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
     els.chkVideo.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
 
-    // Start/Pause/Stop breathing (same as v23)
+    // Start/Pause/Stop breathing
     let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
     function seq(){ const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value]; return arr.map((v,i)=>({dur:Math.max(0,v),...phasesBase[i]})).filter(p=>p.dur>0); }
@@ -443,8 +482,8 @@
 
     // ===== Init =====
     loadPrefs();
+    loadPreset();
     applyTheme();
-    // Unlock: on first user gesture, set desired mute state & try play
     ['pointerup','touchend','click'].forEach(evt=>{
       document.addEventListener(evt, ()=>{
         ensureAudio();
