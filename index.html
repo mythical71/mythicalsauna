@@ -169,11 +169,6 @@
           </div>
 
           <div class="row">
-            <span class="label">Ambient noise</span>
-            <label><input id="chkAmbient" type="checkbox"> On</label>
-          </div>
-
-          <div class="row">
             <span class="label">Cue beeps</span>
             <label><input id="chkBeeps" type="checkbox" checked> On</label>
           </div>
@@ -225,7 +220,6 @@
       cycles: $('#cycles'), rounds: $('#rounds'),
       selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider'),
       chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
-      chkAmbient: $('#chkAmbient'),
       chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4'),
       glow: $('#themeGlow'),
@@ -316,37 +310,6 @@
       });
     }
 
-    // ===== Audio context for beeps/voice/ambient =====
-    let audioCtx=null;
-    function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
-
-    // Ambient (fixed volume)
-    let ambientNode=null, ambientGain=null;
-    function startAmbient(){
-      ensureAudio(); if(!audioCtx || ambientNode) return;
-      const len = 2 * audioCtx.sampleRate;
-      const buff = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-      const data = buff.getChannelData(0);
-      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-      for (let i=0;i<len;i++){
-        const white = Math.random()*2-1;
-        b0 = 0.99886*b0 + white*0.0555179;
-        b1 = 0.99332*b1 + white*0.0750759;
-        b2 = 0.96900*b2 + white*0.1538520;
-        b3 = 0.86650*b3 + white*0.3104856;
-        b4 = 0.55000*b4 + white*0.5329522;
-        b5 = -0.7616*b5 - white*0.0168980;
-        let out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white*0.5362;
-        out *= 0.11; b6 = white*0.115926;
-        data[i] = out;
-      }
-      const src = audioCtx.createBufferSource(); src.buffer = buff; src.loop = true;
-      const g = audioCtx.createGain(); g.gain.value = 0.25; // fixed gentle level
-      src.connect(g); g.connect(audioCtx.destination); src.start();
-      ambientNode = src; ambientGain = g;
-    }
-    function stopAmbient(){ try{ ambientNode?.stop(); }catch{} ambientNode=null; ambientGain=null; }
-
     // Smooth ramp
     function rampVolume(el, to, ms){ return new Promise(resolve=>{
       const from = el.volume; const start = performance.now();
@@ -360,8 +323,8 @@
       waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4', glow:'rgba(45,212,191,0.35)' }
     };
 
-    // Pref keys
-    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol', ambient:'ms.ambient' };
+    // Pref keys (ambient removed)
+    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol' };
 
     // Load prefs
     function loadPrefs(){
@@ -370,7 +333,6 @@
       const d = parseFloat(localStorage.getItem(PREFS.dim) ?? '0.5'); els.dimSlider.value = isNaN(d)?0.5:d; document.documentElement.style.setProperty('--dim', els.dimSlider.value);
       els.chkSceneAudio.checked = (localStorage.getItem(PREFS.scene) ?? '1') === '1';
       els.volScene.value = localStorage.getItem(PREFS.sceneVol) ?? '0.5';
-      els.chkAmbient.checked = localStorage.getItem(PREFS.ambient) === '1';
       els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
     }
     function savePrefs(){
@@ -379,7 +341,6 @@
       localStorage.setItem(PREFS.dim, String(els.dimSlider.value));
       localStorage.setItem(PREFS.scene, els.chkSceneAudio.checked ? '1':'0');
       localStorage.setItem(PREFS.sceneVol, String(els.volScene.value));
-      localStorage.setItem(PREFS.ambient, els.chkAmbient.checked ? '1':'0');
     }
 
     // Robust theme switcher with fallback + theme glow
@@ -400,7 +361,7 @@
         els.bgVideo.style.opacity = 0;
         await new Promise(r=>setTimeout(r, 350));
 
-        const vtag='?v=26';
+        const vtag='?v=27';
         let triedMp4=false; let resolved=false;
 
         function cleanup(){
@@ -449,16 +410,6 @@
       ensurePlayMutedFirst();
       savePrefs();
     });
-    els.chkAmbient.addEventListener('change', ()=>{
-      if(els.chkAmbient.checked){
-        startAmbient();
-        els.chkSceneAudio.checked=false;
-        els.bgVideo.muted=true;
-      } else {
-        stopAmbient();
-      }
-      savePrefs();
-    });
     els.selTheme.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
     els.chkVideo.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
 
@@ -488,7 +439,6 @@
     applyTheme();
     ['pointerup','touchend','click'].forEach(evt=>{
       document.addEventListener(evt, ()=>{
-        ensureAudio();
         els.bgVideo.muted = !els.chkSceneAudio.checked;
         els.bgVideo.play().catch(()=>{});
       }, { once:true, passive:true });
