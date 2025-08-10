@@ -9,6 +9,7 @@
     :root{
       --bg:#0b1020; --card:#121a33; --accent:#22d3ee; --accent2:#a78bfa; --text:#e6f0ff; --muted:#90a4c8;
       --progress:0%; --footer-h:92px; --dim:0.5;
+      --glow: rgba(56,189,248,0.35); /* default ocean-ish */
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -16,15 +17,26 @@
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial;
       color:var(--text); background:var(--bg);
     }
-    /* Background */
-    #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; background:#000; pointer-events:none;
-      transition: opacity .4s ease; opacity:1; /* visual fade used only on theme change */
+    /* Background video */
+    #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-2; background:#000; pointer-events:none;
+      transition: opacity .4s ease; opacity:1;
     }
-    body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:0; pointer-events:none;}
+    /* Dim layer */
+    body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:-1; pointer-events:none;}
+    /* Theme glow overlay (appears only on theme change) */
+    #themeGlow{position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:0;}
+    #themeGlow.glow-active{ animation: glowPulse 700ms ease-in-out forwards; }
+    @keyframes glowPulse{
+      0%{ opacity:0; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, transparent 40%, var(--glow) 60%, transparent 80%); filter: blur(0px); }
+      35%{ opacity:.45; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, var(--glow) 45%, var(--glow) 62%, transparent 82%); filter: blur(2px);}
+      60%{ opacity:.25; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, var(--glow) 35%, var(--glow) 55%, transparent 78%); filter: blur(1px);}
+      100%{ opacity:0; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, transparent 40%, var(--glow) 60%, transparent 80%); filter: blur(0px); }
+    }
+
     /* Layout */
     .app{max-width:900px; margin:0 auto; padding:16px;
          padding-bottom:calc(var(--footer-h) + env(safe-area-inset-bottom) + 8px);
-         position:relative; z-index:1}
+         position:relative; z-index:0}
     header{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0}
     header h1{font-size:22px; margin:0; letter-spacing:.5px}
     .actions{display:flex; gap:8px; flex-wrap:wrap}
@@ -85,11 +97,12 @@
   </style>
 </head>
 <body>
-  <!-- Background -->
+  <!-- Background layers -->
   <video id="bgVideo" autoplay muted loop playsinline>
     <source id="bgSrcWebm" src="" type="video/webm">
     <source id="bgSrcMp4"  src="" type="video/mp4">
   </video>
+  <div id="themeGlow"></div>
 
   <div class="app">
     <header>
@@ -236,7 +249,8 @@
       chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
       chkAmbient: $('#chkAmbient'), volAmbient: $('#volAmbient'),
       chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
-      bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4')
+      bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4'),
+      glow: $('#themeGlow')
     };
 
     // ===== Audio context =====
@@ -405,9 +419,9 @@
 
     // ===== Theme / Background Video + Prefs =====
     const THEME_MEDIA = {
-      ocean:     { webm: 'media/ocean.webm',     mp4: 'media/ocean.mp4' },
-      fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4' },
-      waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4' }
+      ocean:     { webm: 'media/ocean.webm',     mp4: 'media/ocean.mp4',     glow:'rgba(56,189,248,0.35)'  },
+      fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4', glow:'rgba(251,146,60,0.35)' },
+      waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4', glow:'rgba(45,212,191,0.35)' }
     };
     const PREFS = {
       theme:'ms.theme', video:'ms.video', dim:'ms.dim',
@@ -468,7 +482,7 @@
       });
     }
 
-    // Apply theme with visual + audio crossfade (audio part already in v16)
+    // Apply theme (visual fade + theme-coloured glow + audio crossfade)
     async function applyTheme(){
       const theme = els.selTheme.value;
       if(!els.chkVideo.checked || theme==='none'){
@@ -477,17 +491,25 @@
       const m = THEME_MEDIA[theme];
       if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
 
-      // Visual fade out
+      // Set theme glow color & trigger pulse
+      document.documentElement.style.setProperty('--glow', m.glow || 'rgba(56,189,248,0.35)');
+      els.glow.classList.remove('glow-active'); void els.glow.offsetWidth; // restart animation
+      els.glow.classList.add('glow-active');
+
+      // Visual fade out (video)
       els.bgVideo.style.opacity = 0;
 
       const targetVol = parseFloat(els.volScene.value || '0.5');
-      // Audio fade out if scene audio is active
+      // If scene audio is currently active, fade it out
       if (!els.bgVideo.muted && els.bgVideo.volume > 0){
-        try{ await rampVolume(els.bgVideo, 0, 350); }catch{}
+        try{ await rampVolume(els.bgVideo, 0, 300); }catch{}
       }
 
+      // Delay half the glow duration (~350ms) before swapping sources (feels synced)
+      await new Promise(r => setTimeout(r, 350));
+
       // Swap sources
-      const vtag='?v=17';
+      const vtag='?v=19';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
@@ -501,7 +523,7 @@
       els.bgVideo.volume = 0.0; // start at 0, ramp in
       savePrefs();
 
-      // When ready, fade in
+      // When ready, fade video in and ramp volume up
       const onCanPlay = async () => {
         els.bgVideo.removeEventListener('canplay', onCanPlay);
         els.bgVideo.style.opacity = 1;
@@ -530,27 +552,23 @@
     els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
     els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
-    // Ambient <-> Scene crossfades (AUDIO ONLY)
+    // Ambient <-> Scene crossfades (AUDIO ONLY) — kept from v18
     async function crossfadeToScene(){
       ensureAudio(); ensurePlay();
       const targetVol = parseFloat(els.volScene.value || '0.5');
-      // Fade ambient down then stop
-      if (ambientGain){ try{ await rampGain(ambientGain, 0.0, 350); }catch{} }
+      if (ambientGain){ try{ await rampGain(ambientGain, 0.0, 300); }catch{} }
       stopAmbient();
-      // Unmute video at 0 and ramp up
       els.bgVideo.muted = false;
       els.bgVideo.volume = 0.0;
-      try{ await rampVolume(els.bgVideo, targetVol, 600); }catch{ els.bgVideo.volume = targetVol; }
+      try{ await rampVolume(els.bgVideo, targetVol, 550); }catch{ els.bgVideo.volume = targetVol; }
     }
     async function crossfadeToAmbient(){
       ensureAudio(); ensurePlay();
       const targetGain = parseFloat(els.volAmbient.value || '0.25');
-      // Fade scene down
-      try{ await rampVolume(els.bgVideo, 0.0, 350); }catch{ els.bgVideo.volume = 0.0; }
+      try{ await rampVolume(els.bgVideo, 0.0, 300); }catch{ els.bgVideo.volume = 0.0; }
       els.bgVideo.muted = true;
-      // Start ambient at 0 and ramp up
       if (!ambientNode){ startAmbient(); }
-      if (ambientGain){ const prev = ambientGain.gain.value; ambientGain.gain.value = 0.0; try{ await rampGain(ambientGain, targetGain, 600); }catch{ ambientGain.gain.value = targetGain; } }
+      if (ambientGain){ ambientGain.gain.value = 0.0; try{ await rampGain(ambientGain, targetGain, 550); }catch{ ambientGain.gain.value = targetGain; } }
     }
 
     // Scene audio + Ambient interlock with crossfades
@@ -559,7 +577,6 @@
         els.chkAmbient.checked = false;
         await crossfadeToScene();
       } else {
-        // If turned off scene and ambient not requested, just mute video
         els.bgVideo.muted = true;
       }
       savePrefs();
@@ -570,7 +587,6 @@
         els.chkSceneAudio.checked = false;
         await crossfadeToAmbient();
       } else {
-        // Turned ambient off -> stop ambient
         stopAmbient();
       }
       savePrefs();
@@ -611,8 +627,11 @@
     function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; }
     function timerStop(final=false){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); }
 
-    // Init
+    // Init + listeners
     loadPrefs(); applyTheme(); loadPreset();
+    els.selTheme.addEventListener('change', applyTheme);
+    els.chkVideo.addEventListener('change', applyTheme);
+    els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
     document.getElementById('btnFullscreen').addEventListener('click', ()=>{
       const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }
     });
