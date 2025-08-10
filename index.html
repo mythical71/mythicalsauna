@@ -70,6 +70,7 @@
       backdrop-filter: blur(10px);
       background:linear-gradient(180deg, rgba(2,6,23,0), rgba(2,6,23,.85));
       border-top:1px solid rgba(255,255,255,.08); display:flex; align-items:center; gap:12px;
+      z-index: 2; /* ensure above everything */
     }
     .grow{flex:1}
     #btnStart.is-pressing, #btnStart:active {
@@ -156,14 +157,6 @@
             <span class="label">Background dim</span>
             <input id="dimSlider" type="range" min="0" max="0.85" step="0.01" value="0.5" class="range">
           </div>
-          <div class="row">
-            <span class="label">Cue beeps</span>
-            <label><input id="chkBeeps" type="checkbox" checked> On</label>
-          </div>
-          <div class="row">
-            <span class="label">Vibrate on phase</span>
-            <label><input id="chkVibrate" type="checkbox" checked> On</label>
-          </div>
         </div>
       </div>
 
@@ -206,51 +199,8 @@
       timerMinutes: $('#timerMinutes'), timerSets: $('#timerSets'), timerRest: $('#timerRest'),
       btnTimerStart: $('#btnTimerStart'), btnTimerPause: $('#btnTimerPause'), btnTimerStop: $('#btnTimerStop'),
       selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider'),
-      chkBeeps: $('#chkBeeps'), chkVibrate: $('#chkVibrate'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4')
     };
-
-    // ===== Utility: button press visual (mobile-friendly) =====
-    function addPressFeedback(btn, onTrigger){
-      if(!btn) return;
-      const pressOn = (e)=>{ e.preventDefault(); btn.classList.add('is-pressing'); btn.setAttribute('aria-pressed','true'); };
-      const pressOff = (e)=>{ btn.classList.remove('is-pressing'); btn.setAttribute('aria-pressed','false'); };
-      const trigger = (e)=>{ e.preventDefault(); e.stopPropagation(); pressOff(); onTrigger?.(); };
-      btn.addEventListener('touchstart', pressOn, {passive:false});
-      btn.addEventListener('pointerdown', pressOn, {passive:false});
-      btn.addEventListener('mousedown', pressOn);
-      btn.addEventListener('touchend', trigger, {passive:false});
-      btn.addEventListener('pointerup', trigger, {passive:false});
-      btn.addEventListener('mouseup', trigger);
-      btn.addEventListener('mouseleave', pressOff);
-      btn.addEventListener('click', (e)=>{ e.preventDefault(); trigger(e); }); // fallback
-    }
-
-    // ===== Audio + Haptics =====
-    let audioCtx = null;
-    function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
-    function beep(freq=440, duration=0.12, gain=0.12){
-      if(!els.chkBeeps.checked) return;
-      try{
-        ensureAudio();
-        const ctx=audioCtx; if(!ctx) return;
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = 'sine'; osc.frequency.value = freq;
-        g.gain.value = 0.0001;
-        osc.connect(g); g.connect(ctx.destination);
-        const now = ctx.currentTime;
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(gain, now + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-        osc.start(now);
-        osc.stop(now + duration + 0.02);
-      }catch{}
-    }
-    function haptic(pattern=[25]){
-      if(!els.chkVibrate.checked) return;
-      if (navigator.vibrate) { try{ navigator.vibrate(pattern); }catch{} }
-    }
 
     // ===== Presets =====
     const PRESET_STORAGE_KEY = 'ms.preset';
@@ -285,7 +235,7 @@
       });
     }
 
-    // ===== Breathing engine (interval-based) =====
+    // ===== Breathing engine =====
     let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
     function seq(){
@@ -311,9 +261,6 @@
       if (!paused){
         phaseTimeLeft -= 0.2;
         if (phaseTimeLeft <= 0){
-          // phase transition cues
-          beep(cur.key==='exhale' ? 520 : 440, 0.10, 0.10);
-          haptic([12,30,12]);
           phaseIndex++;
           if (phaseIndex % s.length === 0){
             cycle++;
@@ -330,9 +277,6 @@
     }
     function start(){
       if(running) return;
-      ensureAudio(); // unlock audio on gesture
-      haptic([20]);  // short confirm on start
-      beep(660, 0.12, 0.12);
       running = true; paused = false; round = 1; cycle = 1; phaseIndex = 0;
       const s = seq(); phaseTimeLeft = s[0].dur;
       updateHUD(s[0].label, Math.max(0, Math.ceil(phaseTimeLeft)));
@@ -343,60 +287,20 @@
       if(!running) return;
       paused = !paused;
       els.btnPause.textContent = paused ? '▶ Resume' : '⏸️ Pause';
-      beep(paused?350:500, 0.08, 0.08);
-      haptic([10]);
     }
     function stop(){
       running=false; paused=false; clearInterval(interval);
       els.btnStart.disabled = false; els.btnPause.disabled = true; els.btnStop.disabled = true; els.btnPause.textContent='⏸️ Pause';
       updateHUD('Ready',0); document.documentElement.style.setProperty('--progress','0%');
-      beep(260, 0.10, 0.08);
-      haptic([8,30,8]);
     }
 
-    // Bind Start with visual feedback + mobile support
-    addPressFeedback(els.btnStart, start);
-    els.btnPause.addEventListener('click', (e)=>{ e.preventDefault(); togglePause(); });
-    els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
-    els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
-
-    // ===== Timer =====
-    let tRun=false, tPause=false, tInt=null, tMs=0, tSet=0, tMode='work';
-    const fmt = ms => { const s=Math.max(0,Math.ceil(ms/1000)); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; };
-    function updTimer(){
-      let pill=document.getElementById('timerPill');
-      if(!pill){ pill=document.createElement('div'); pill.id='timerPill'; pill.style.cssText='position:fixed;top:10px;right:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-variant-numeric:tabular-nums;z-index:2'; document.body.appendChild(pill); }
-      pill.textContent = `⏱ ${fmt(tMs)} (Set ${tSet+1}/${+els.timerSets.value}${tMode==='rest'?' • Rest':''})`;
-    }
-    function timerStart(){
-      if(tRun) return;
-      ensureAudio();
-      tRun=true; tPause=false; tMode='work'; tSet=0; tMs=+els.timerMinutes.value*60*1000;
-      els.btnTimerPause.disabled=false; els.btnTimerStop.disabled=false;
-      updTimer();
-      tInt = setInterval(()=>{
-        if(!tRun || tPause) return;
-        tMs -= 200;
-        if(tMs<=0){
-          const total=+els.timerSets.value;
-          beep(700, 0.12, 0.12); haptic([18]);
-          if(tMode==='work'){
-            const rest=+els.timerRest.value;
-            if(rest>0){ tMode='rest'; tMs=rest*60*1000; }
-            else { tSet++; if(tSet>=total){ return timerStop(true); } tMode='work'; tMs=+els.timerMinutes.value*60*1000; }
-          } else {
-            tSet++; if(tSet>=total){ return timerStop(true); } tMode='work'; tMs=+els.timerMinutes.value*60*1000;
-          }
-        }
-        updTimer();
-      },200);
-    }
-    function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; beep(420,0.08,0.08); haptic([10]); }
-    function timerStop(final=false){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); if(final){ beep(280,0.14,0.12); haptic([15,40,15]); } }
-
-    addPressFeedback(els.btnTimerStart, timerStart);
-    els.btnTimerPause.addEventListener('click', (e)=>{ e.preventDefault(); timerPause(); });
-    els.btnTimerStop.addEventListener('click', (e)=>{ e.preventDefault(); timerStop(); });
+    // ===== Audio unlock helpers =====
+    let audioCtx=null;
+    function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
+    function ensurePlay(){ try{ els.bgVideo.play(); }catch{} }
+    ['touchend','pointerup','click'].forEach(evt => {
+      document.body.addEventListener(evt, ()=>{ ensureAudio(); ensurePlay(); }, { once:true, passive:true });
+    });
 
     // ===== Theme / Background Video + Prefs =====
     const THEME_MEDIA = {
@@ -404,24 +308,19 @@
       fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4' },
       waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4' }
     };
-    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', beeps:'ms.beeps', vib:'ms.vibrate' };
+    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim' };
     function savePrefs(){
       localStorage.setItem(PREFS.theme, els.selTheme.value);
       localStorage.setItem(PREFS.video, els.chkVideo.checked ? '1':'0');
       localStorage.setItem(PREFS.dim, String(els.dimSlider.value));
-      localStorage.setItem(PREFS.beeps, els.chkBeeps.checked ? '1':'0');
-      localStorage.setItem(PREFS.vib, els.chkVibrate.checked ? '1':'0');
     }
     function loadPrefs(){
       els.selTheme.value   = localStorage.getItem(PREFS.theme) || 'ocean';
       els.chkVideo.checked = localStorage.getItem(PREFS.video) !== '0';
       const d = parseFloat(localStorage.getItem(PREFS.dim) ?? '0.5');
       els.dimSlider.value = isNaN(d) ? 0.5 : d;
-      els.chkBeeps.checked = localStorage.getItem(PREFS.beeps) !== '0';
-      els.chkVibrate.checked = localStorage.getItem(PREFS.vib) !== '0';
       document.documentElement.style.setProperty('--dim', els.dimSlider.value);
     }
-    async function ensurePlay(){ try{ await els.bgVideo.play(); }catch{} }
     function applyTheme(){
       const theme = els.selTheme.value;
       if(!els.chkVideo.checked || theme==='none'){
@@ -429,28 +328,42 @@
       }
       const m = THEME_MEDIA[theme];
       if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
-      const vtag='?v=11';
+      const vtag='?v=12';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
       els.bgVideo.style.display='';
-      ensurePlay().finally(savePrefs);
+      ensurePlay(); savePrefs();
     }
     loadPrefs(); applyTheme(); loadPreset();
     els.selTheme.addEventListener('change', applyTheme);
     els.chkVideo.addEventListener('change', applyTheme);
     els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
-    els.chkBeeps.addEventListener('change', savePrefs);
-    els.chkVibrate.addEventListener('change', savePrefs);
+
+    // ===== Bind buttons (single handler for Start) =====
+    function addPressFeedback(btn, onTrigger){
+      if(!btn) return;
+      const pressOn = (e)=>{ e.preventDefault(); btn.classList.add('is-pressing'); btn.setAttribute('aria-pressed','true'); };
+      const pressOff = (e)=>{ btn.classList.remove('is-pressing'); btn.setAttribute('aria-pressed','false'); };
+      const trigger = (e)=>{ e.preventDefault(); e.stopPropagation(); pressOff(); onTrigger?.(); };
+      btn.addEventListener('touchstart', pressOn, {passive:false});
+      btn.addEventListener('pointerdown', pressOn, {passive:false});
+      btn.addEventListener('mousedown', pressOn);
+      btn.addEventListener('touchend', trigger, {passive:false});
+      btn.addEventListener('pointerup', trigger, {passive:false});
+      btn.addEventListener('mouseup', trigger);
+      btn.addEventListener('mouseleave', pressOff);
+      btn.addEventListener('click', (e)=>{ e.preventDefault(); trigger(e); }); // fallback
+    }
+    addPressFeedback(els.btnStart, ()=>{ ensureAudio(); ensurePlay(); start(); });
+    els.btnPause.addEventListener('click', (e)=>{ e.preventDefault(); togglePause(); });
+    els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
+    els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
     // Fullscreen
     document.getElementById('btnFullscreen').addEventListener('click', ()=>{
       const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }
     });
-
-    // Unlock audio/video on first gesture too
-    addPressFeedback(els.btnStart, ()=>{ ensureAudio(); ensurePlay(); });
-    window.addEventListener('orientationchange', () => setTimeout(()=>window.scrollTo(0,1), 250));
   })();
   </script>
 </body>
