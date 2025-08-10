@@ -179,7 +179,6 @@
   <script>
   (function(){
     'use strict';
-    // Shortcuts
     const $ = s => document.querySelector(s);
     const els = {
       rIn: $('#rIn'), rH1: $('#rH1'), rEx: $('#rEx'), rH2: $('#rH2'),
@@ -192,7 +191,10 @@
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4')
     };
 
-    // ===== Presets with persistence =====
+    // Guard: if any critical element is missing, stop to avoid JS errors
+    for (const [k,v] of Object.entries(els)) { if (!v) { console.error('Missing element:', k); } }
+
+    // ===== Presets =====
     const PRESET_STORAGE_KEY = 'ms.preset';
     const presetsEl = document.getElementById('presets');
     function updateVals(){
@@ -212,14 +214,13 @@
       if (p.rounds != null)  els.rounds.value= p.rounds;
       updateVals();
     }
-    function savePreset(p){ try{ localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(p)); }catch{} }
     function loadPreset(){
       try{
         const raw = localStorage.getItem(PRESET_STORAGE_KEY);
-        if(!raw) return;
-        applyPreset(JSON.parse(raw));
+        if(raw) applyPreset(JSON.parse(raw));
       }catch{}
     }
+    function savePreset(p){ try{ localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(p)); }catch{} }
     if (presetsEl) {
       presetsEl.addEventListener('click', (e) => {
         const chip = e.target.closest('.chip');
@@ -232,76 +233,85 @@
       });
     }
 
-    // ===== Breathing engine =====
-    let running=false, paused=false, loopHandle=null, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0;
+    // ===== Breathing engine (interval-based for reliability) =====
+    let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
-    const seq = () => {
+    function seq(){
       const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value];
-      return arr.map((v,i)=>({dur:v, ...phasesBase[i]})).filter(p=>p.dur>0 || p.key==='inhale' || p.key==='exhale');
-    };
-    const progressUpdate = () => {
-      const s=seq(); const total=s.reduce((a,b)=>a+b.dur,0);
+      let s = arr.map((v,i)=>({dur:Math.max(0,v), ...phasesBase[i]}));
+      // Ensure at least inhale/exhale exist with duration > 0
+      if (s[0].dur===0 && s[2].dur===0) { s[0].dur=4; s[2].dur=4; }
+      return s.filter(p=>p.dur>0);
+    }
+    function updateHUD(label,count){
+      $('#phase').textContent = label;
+      $('#counter').textContent = count;
+      $('#roundsHint').textContent = `Rounds: ${round||0} • Cycle: ${cycle||0}`;
+    }
+    function progressUpdate(s){
+      const total=s.reduce((a,b)=>a+b.dur,0);
       const elapsed=(s.slice(0, phaseIndex % s.length).reduce((a,b)=>a+b.dur,0)) + (s[phaseIndex % s.length].dur - Math.max(0, phaseTimeLeft));
       const pct=Math.max(0, Math.min(100,(elapsed/total)*100));
       document.documentElement.style.setProperty('--progress', pct+'%');
-    };
-    const updateHUD = (label,count) => {
-      document.getElementById('phase').textContent = label;
-      document.getElementById('counter').textContent = count;
-      document.getElementById('roundsHint').textContent = `Rounds: ${round||0} • Cycle: ${cycle||0}`;
-    };
-    const step = () => {
-      if(!running) return;
-      const s=seq(); const cur=s[phaseIndex % s.length];
-      if(!paused){
-        phaseTimeLeft -= 0.1;
-        updateHUD(cur.label, Math.max(0, Math.ceil(phaseTimeLeft)));
-        progressUpdate();
-        if(phaseTimeLeft<=0){
+    }
+    function tick(){
+      const s = seq(); if (s.length===0) return;
+      const cur = s[phaseIndex % s.length];
+      if (!paused){
+        phaseTimeLeft -= 0.2;
+        if (phaseTimeLeft <= 0){
           phaseIndex++;
-          if(phaseIndex % s.length===0){
+          if (phaseIndex % s.length === 0){
             cycle++;
-            if(cycle>+els.cycles.value){ round++; if(round>+els.rounds.value){ return stop(); } cycle=1; }
+            if (cycle > +els.cycles.value){ round++; if (round > +els.rounds.value){ stop(); return; } cycle = 1; }
           }
-          const nxt=s[phaseIndex % s.length]; phaseTimeLeft = nxt.dur;
+          const nxt = s[phaseIndex % s.length];
+          phaseTimeLeft = nxt.dur;
+          updateHUD(nxt.label, Math.max(0, Math.ceil(phaseTimeLeft)));
+        } else {
+          updateHUD(cur.label, Math.max(0, Math.ceil(phaseTimeLeft)));
         }
+        progressUpdate(s);
       }
-      loopHandle = setTimeout(step,100);
-    };
+    }
     function start(){
       if(running) return;
-      running=true; paused=false; round=1; cycle=1; phaseIndex=0;
-      const s=seq(); phaseTimeLeft = s[0].dur;
+      running = true; paused = false; round = 1; cycle = 1; phaseIndex = 0;
+      const s = seq(); phaseTimeLeft = s[0].dur;
       updateHUD(s[0].label, Math.max(0, Math.ceil(phaseTimeLeft)));
-      step();
+      els.btnStart.disabled = true; els.btnPause.disabled = false; els.btnStop.disabled = false;
+      interval = setInterval(tick, 200);
+      console.log('Breathing started');
     }
     function togglePause(){
       if(!running) return;
       paused = !paused;
-      document.getElementById('btnPause').textContent = paused ? '▶ Resume' : '⏸️ Pause';
+      els.btnPause.textContent = paused ? '▶ Resume' : '⏸️ Pause';
     }
     function stop(){
-      running=false; paused=false; clearTimeout(loopHandle);
-      updateHUD('Ready', 0);
-      document.getElementById('btnPause').textContent='⏸️ Pause';
+      running=false; paused=false; clearInterval(interval);
+      els.btnStart.disabled = false; els.btnPause.disabled = true; els.btnStop.disabled = true; els.btnPause.textContent='⏸️ Pause';
+      updateHUD('Ready',0); document.documentElement.style.setProperty('--progress','0%');
+      console.log('Breathing stopped');
     }
     els.btnStart.addEventListener('click', start);
     els.btnPause.addEventListener('click', togglePause);
     els.btnStop.addEventListener('click', stop);
     els.btnReset.addEventListener('click', ()=>{ if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
-    // ===== Timer (independent) =====
+    // ===== Timer =====
     let tRun=false, tPause=false, tInt=null, tMs=0, tSet=0, tMode='work';
     const fmt = ms => { const s=Math.max(0,Math.ceil(ms/1000)); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; };
-    const updTimer = () => {
-      const pill = document.getElementById('timerPill');
-      if (pill) pill.textContent = `⏱ ${fmt(tMs)} (Set ${tSet+1}/${+els.timerSets.value}${tMode==='rest'?' • Rest':''})`;
-    };
+    function updTimer(){
+      let pill=document.getElementById('timerPill');
+      if(!pill){ pill=document.createElement('div'); pill.id='timerPill'; pill.style.cssText='position:fixed;top:10px;right:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-variant-numeric:tabular-nums;z-index:2'; document.body.appendChild(pill); }
+      pill.textContent = `⏱ ${fmt(tMs)} (Set ${tSet+1}/${+els.timerSets.value}${tMode==='rest'?' • Rest':''})`;
+    }
     function timerStart(){
       if(tRun) return;
       tRun=true; tPause=false; tMode='work'; tSet=0; tMs=+els.timerMinutes.value*60*1000;
-      document.getElementById('btnTimerPause').disabled=false;
-      document.getElementById('btnTimerStop').disabled=false;
+      els.btnTimerPause.disabled=false; els.btnTimerStop.disabled=false;
+      updTimer();
       tInt = setInterval(()=>{
         if(!tRun || tPause) return;
         tMs -= 200;
@@ -311,19 +321,16 @@
             const rest=+els.timerRest.value;
             if(rest>0){ tMode='rest'; tMs=rest*60*1000; }
             else { tSet++; if(tSet>=total){ return timerStop(); } tMode='work'; tMs=+els.timerMinutes.value*60*1000; }
-          }else{
+          } else {
             tSet++; if(tSet>=total){ return timerStop(); } tMode='work'; tMs=+els.timerMinutes.value*60*1000;
           }
         }
         updTimer();
       },200);
-      // create/update pill
-      let pill=document.getElementById('timerPill');
-      if(!pill){ pill=document.createElement('div'); pill.id='timerPill'; pill.style.cssText='position:fixed;top:10px;right:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-variant-numeric:tabular-nums;z-index:2'; document.body.appendChild(pill); }
-      updTimer();
+      console.log('Timer started');
     }
     function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; }
-    function timerStop(){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); }
+    function timerStop(){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); console.log('Timer stopped'); }
     els.btnTimerStart.addEventListener('click', timerStart);
     els.btnTimerPause.addEventListener('click', timerPause);
     els.btnTimerStop.addEventListener('click', timerStop);
@@ -355,12 +362,13 @@
       }
       const m = THEME_MEDIA[theme];
       if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
-      const vtag='?v=7';
+      const vtag='?v=8';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
       els.bgVideo.style.display='';
       ensurePlay().finally(savePrefs);
+      console.log('Theme applied:', theme);
     }
     loadPrefs();
     applyTheme();
@@ -379,9 +387,10 @@
       const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }
     });
 
-    // Ensure playback unlocked after user gesture
+    // Unlock playback after user gesture
     els.btnStart.addEventListener('click', ensurePlay);
     window.addEventListener('orientationchange', () => setTimeout(()=>window.scrollTo(0,1), 250));
+
   })();
   </script>
 </body>
