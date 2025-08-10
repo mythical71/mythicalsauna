@@ -9,7 +9,7 @@
     :root{
       --bg:#0b1020; --card:#121a33; --accent:#22d3ee; --accent2:#a78bfa; --text:#e6f0ff; --muted:#90a4c8;
       --progress:0%; --footer-h:92px; --dim:0.5;
-      --glow: rgba(56,189,248,0.35); /* default ocean-ish */
+      --glow: rgba(56,189,248,0.35);
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -17,26 +17,19 @@
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial;
       color:var(--text); background:var(--bg);
     }
-    /* Background video */
     #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-2; background:#000; pointer-events:none;
-      transition: opacity .4s ease; opacity:1;
+      transition: opacity .35s ease; opacity:1;
     }
-    /* Dim layer */
     body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:-1; pointer-events:none;}
-    /* Theme glow overlay (appears only on theme change) */
     #themeGlow{position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:0;}
     #themeGlow.glow-active{ animation: glowPulse 700ms ease-in-out forwards; }
     @keyframes glowPulse{
       0%{ opacity:0; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, transparent 40%, var(--glow) 60%, transparent 80%); filter: blur(0px); }
-      35%{ opacity:.45; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, var(--glow) 45%, var(--glow) 62%, transparent 82%); filter: blur(2px);}
-      60%{ opacity:.25; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, var(--glow) 35%, var(--glow) 55%, transparent 78%); filter: blur(1px);}
+      35%{ opacity:.45; background:radial-gradient(120% 120% at 50% 50%, transparent 0, var(--glow) 45%, var(--glow) 62%, transparent 82%); filter: blur(2px);}
+      60%{ opacity:.25; background:radial-gradient(120% 120% at 50% 50%, transparent 0, var(--glow) 35%, var(--glow) 55%, transparent 78%); filter: blur(1px);}
       100%{ opacity:0; background:radial-gradient(120% 120% at 50% 50%, transparent 0%, transparent 40%, var(--glow) 60%, transparent 80%); filter: blur(0px); }
     }
-
-    /* Layout */
-    .app{max-width:900px; margin:0 auto; padding:16px;
-         padding-bottom:calc(var(--footer-h) + env(safe-area-inset-bottom) + 8px);
-         position:relative; z-index:0}
+    .app{max-width:900px; margin:0 auto; padding:16px; padding-bottom:calc(var(--footer-h) + env(safe-area-inset-bottom) + 8px); position:relative; z-index:0}
     header{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0}
     header h1{font-size:22px; margin:0; letter-spacing:.5px}
     .actions{display:flex; gap:8px; flex-wrap:wrap}
@@ -87,22 +80,19 @@
       z-index: 2;
     }
     .grow{flex:1}
-    #btnStart.is-pressing, #btnStart:active {
-      transform: translateY(1px) scale(0.98);
-      box-shadow: 0 3px 10px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.08);
-      filter: brightness(0.95);
-      outline: 2px solid rgba(34,211,238,.5);
-      outline-offset: 0;
-    }
+    #debug{position:fixed;left:10px;bottom:calc(var(--footer-h) + 12px);font:12px/1.2 system-ui;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 8px;border-radius:10px;max-width:min(90vw,420px);white-space:pre-wrap;z-index:3;display:none}
+    #debugToggle{position:fixed;left:10px;bottom:10px;z-index:4}
   </style>
 </head>
 <body>
-  <!-- Background layers -->
   <video id="bgVideo" autoplay muted loop playsinline>
     <source id="bgSrcWebm" src="" type="video/webm">
     <source id="bgSrcMp4"  src="" type="video/mp4">
   </video>
   <div id="themeGlow"></div>
+
+  <div id="debug"></div>
+  <button id="debugToggle" class="btn-ghost">Debug</button>
 
   <div class="app">
     <header>
@@ -122,7 +112,6 @@
       </div>
     </section>
 
-    <!-- Presets -->
     <div class="card">
       <div class="chips" id="presets">
         <button class="chip" data-preset='{"name":"Box 4-4-4-4","inhale":4,"hold1":4,"exhale":4,"hold2":4,"cycles":12,"rounds":3}'>Box 4-4-4-4</button>
@@ -136,7 +125,6 @@
     <section class="grid">
       <div class="twocol">
         <div class="card grid">
-          <!-- Timing controls -->
           <div class="row"><span class="label">Inhale (sec)</span><span class="value" id="vIn">5</span></div>
           <input class="range" id="rIn" type="range" min="1" max="12" value="5" />
           <div class="row"><span class="label">Hold after inhale (sec)</span><span class="value" id="vH1">0</span></div>
@@ -154,7 +142,6 @@
         </div>
 
         <div class="card grid">
-          <!-- Theme / Background / Audio controls -->
           <div class="row">
             <span class="label">Theme</span>
             <select id="selTheme">
@@ -243,292 +230,39 @@
     'use strict';
     const $ = s => document.querySelector(s);
     const els = {
-      rIn: $('#rIn'), rH1: $('#rH1'), rEx: $('#rEx'), rH2: $('#rH2'),
-      vIn: $('#vIn'), vH1: $('#vH1'), vEx: $('#vEx'), vH2: $('#vH2'),
-      cycles: $('#cycles'), rounds: $('#rounds'),
-      btnStart: $('#btnStart'), btnPause: $('#btnPause'), btnStop: $('#btnStop'), btnReset: $('#btnReset'),
-      timerMinutes: $('#timerMinutes'), timerSets: $('#timerSets'), timerRest: $('#timerRest'),
-      btnTimerStart: $('#btnTimerStart'), btnTimerPause: $('#btnTimerPause'), btnTimerStop: $('#btnTimerStop'),
       selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider'),
       chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
       chkAmbient: $('#chkAmbient'), volAmbient: $('#volAmbient'),
-      chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
       chkCrackle: $('#chkCrackle'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4'),
-      glow: $('#themeGlow')
+      glow: $('#themeGlow'),
+      debug: $('#debug'), debugToggle: $('#debugToggle')
     };
 
-    // ===== Audio context =====
-    let audioCtx=null, ambientNode=null, ambientGain=null;
-    function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
-    function ensurePlay(){ try{ els.bgVideo.play(); }catch{} }
+    // Minimal other logic kept out for brevity (breathing, timer, cues) — this build focuses on theme switching stability
+    // For your app, swap this whole file as index.html to test themes. If good, I'll merge back into full app file.
 
-    // ===== Fireplace CRACKLE (synth) =====
-    const crackle = {
-      g:null, noise:null, pops:[], running:false,
-      start(){
-        if(this.running || !els.chkCrackle.checked) return;
-        ensureAudio(); if(!audioCtx) return;
-        // base gentle noise
-        const len = 2 * audioCtx.sampleRate;
-        const buff = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-        const data = buff.getChannelData(0);
-        // pink-ish noise
-        let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-        for(let i=0;i<len;i++){
-          const white = Math.random()*2-1;
-          b0 = 0.99886*b0 + white*0.0555179;
-          b1 = 0.99332*b1 + white*0.0750759;
-          b2 = 0.96900*b2 + white*0.1538520;
-          b3 = 0.86650*b3 + white*0.3104856;
-          b4 = 0.55000*b4 + white*0.5329522;
-          b5 = -0.7616*b5 - white*0.0168980;
-          let out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white*0.5362;
-          out *= 0.11; b6 = white*0.115926;
-          data[i] = out;
-        }
-        const src = audioCtx.createBufferSource();
-        src.buffer = buff; src.loop = true;
+    // Debug helpers
+    let debugOn=false;
+    function log(msg){ if(!debugOn) return; els.debug.textContent += (els.debug.textContent? '\\n' : '') + msg; }
+    els.debugToggle.addEventListener('click', ()=>{
+      debugOn = !debugOn;
+      els.debug.style.display = debugOn ? 'block' : 'none';
+      els.debugToggle.textContent = debugOn ? 'Debug ON' : 'Debug';
+      if (debugOn) els.debug.textContent='';
+    });
 
-        const g = audioCtx.createGain(); g.gain.value = parseFloat(els.volScene.value || '0.35') * 0.6; // gentle base
-        src.connect(g); g.connect(audioCtx.destination); src.start();
-
-        this.noise = src; this.g = g; this.running = true;
-
-        // random pops
-        const makePop = () => {
-          if(!this.running) return;
-          const osc = audioCtx.createOscillator();
-          const eg = audioCtx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.value = 80 + Math.random()*200; // low-mid
-          eg.gain.value = 0.0001;
-          osc.connect(eg); eg.connect(audioCtx.destination);
-          const now = audioCtx.currentTime;
-          const a = 0.001 + Math.random()*0.004;
-          const d = 0.08 + Math.random()*0.18;
-          eg.gain.setValueAtTime(0.0001, now);
-          eg.gain.linearRampToValueAtTime(0.18 + Math.random()*0.22, now + a);
-          eg.gain.exponentialRampToValueAtTime(0.0001, now + a + d);
-          osc.start(now);
-          osc.stop(now + a + d + 0.05);
-          // schedule next pop
-          const next = 0.05 + Math.random()*0.35; // ~3–15 pops/sec varying
-          this._popTimer = setTimeout(makePop, next*1000);
-        };
-        makePop();
-      },
-      stop(){
-        this.running = false;
-        try{ this.noise?.stop(); }catch{} this.noise=null;
-        if(this._popTimer) clearTimeout(this._popTimer);
-        try{ this.g?.disconnect(); }catch{} this.g=null;
-      },
-      setVolume(v){
-        if(this.g) this.g.gain.value = v * 0.6;
-      }
-    };
-
-    // ===== Ambient noise =====
-    function startAmbient(){
-      ensureAudio(); if(!audioCtx || ambientNode) return;
-      const len = 2 * audioCtx.sampleRate;
-      const buff = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-      const data = buff.getChannelData(0);
-      let lastOut = 0.0;
-      for (let i=0;i<len;i++){
-        const white = Math.random()*2-1;
-        lastOut = (lastOut + (0.02 * white)) / 1.02;
-        data[i] = lastOut * 3.5;
-      }
-      const src = audioCtx.createBufferSource();
-      src.buffer = buff; src.loop = true;
-      const filt = audioCtx.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value = 800;
-      const g = audioCtx.createGain(); g.gain.value = parseFloat(els.volAmbient.value || '0.25');
-      src.connect(filt); filt.connect(g); g.connect(audioCtx.destination);
-      src.start();
-      ambientNode = src; ambientGain = g;
-    }
-    function stopAmbient(){ try{ ambientNode?.stop(); }catch{} ambientNode=null; ambientGain=null; }
-
-    // ===== Cues =====
-    function beep(freq=440, duration=0.12, gain=0.12){
-      if(!els.chkBeeps.checked) return;
-      try{
-        ensureAudio();
-        const ctx=audioCtx; if(!ctx) return;
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = 'sine'; osc.frequency.value = freq;
-        g.gain.value = 0.0001;
-        osc.connect(g); g.connect(ctx.destination);
-        const now = ctx.currentTime;
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(gain, now + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-        osc.start(now);
-        osc.stop(now + duration + 0.02);
-      }catch{}
-    }
-    function speak(txt){
-      if(!els.chkVoice.checked) return;
-      try{
-        const u = new SpeechSynthesisUtterance(txt);
-        u.rate = 1.0; u.pitch = 1.0; u.volume = 0.9;
-        speechSynthesis.cancel();
-        speechSynthesis.speak(u);
-      }catch{}
-    }
-    function vibrate(pattern=[20]){ if(!els.chkVibrate.checked) return; if(navigator.vibrate){ try{ navigator.vibrate(pattern); }catch{} } }
-
-    // ===== Presets =====
-    const PRESET_STORAGE_KEY = 'ms.preset';
-    const presetsEl = document.getElementById('presets');
-    function updateVals(){
-      els.vIn.textContent = els.rIn.value;
-      els.vH1.textContent = els.rH1.value;
-      els.vEx.textContent = els.rEx.value;
-      els.vH2.textContent = els.rH2.value;
-      document.documentElement.style.setProperty('--progress','0%');
-    }
-    [els.rIn,els.rH1,els.rEx,els.rH2].forEach(r=>r.addEventListener('input', updateVals));
-    function applyPreset(p){
-      if (p.inhale != null)  els.rIn.value   = p.inhale;
-      if (p.hold1  != null)  els.rH1.value   = p.hold1;
-      if (p.exhale != null)  els.rEx.value   = p.exhale;
-      if (p.hold2  != null)  els.rH2.value   = p.hold2;
-      if (p.cycles != null)  els.cycles.value= p.cycles;
-      if (p.rounds != null)  els.rounds.value= p.rounds;
-      updateVals();
-    }
-    function loadPreset(){ try{ const raw = localStorage.getItem(PRESET_STORAGE_KEY); if(raw) applyPreset(JSON.parse(raw)); }catch{} }
-    function savePreset(p){ try{ localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(p)); }catch{} }
-    if (presetsEl) {
-      presetsEl.addEventListener('click', (e) => {
-        const chip = e.target.closest('.chip'); if (!chip) return;
-        [...presetsEl.children].forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-        const p = JSON.parse(chip.dataset.preset);
-        if (p.name !== 'Custom') applyPreset(p);
-        savePreset(p);
-      });
-    }
-
-    // ===== Breathing engine =====
-    let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null, lastSpoken=-1;
-    const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
-    function seq(){
-      const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value];
-      let s = arr.map((v,i)=>({dur:Math.max(0,v), ...phasesBase[i]}));
-      if (s[0].dur===0 && s[2].dur===0) { s[0].dur=4; s[2].dur=4; }
-      return s.filter(p=>p.dur>0);
-    }
-    function updateHUD(label,count){
-      document.getElementById('phase').textContent = label;
-      document.getElementById('counter').textContent = count;
-      document.getElementById('roundsHint').textContent = `Rounds: ${round||0} • Cycle: ${cycle||0}`;
-    }
-    function progressUpdate(s){
-      const total=s.reduce((a,b)=>a+b.dur,0);
-      const elapsed=(s.slice(0, phaseIndex % s.length).reduce((a,b)=>a+b.dur,0)) + (s[phaseIndex % s.length].dur - Math.max(0, phaseTimeLeft));
-      const pct=Math.max(0, Math.min(100,(elapsed/total)*100));
-      document.documentElement.style.setProperty('--progress', pct+'%');
-    }
-    function tick(){
-      const s = seq(); if (s.length===0) return;
-      const cur = s[phaseIndex % s.length];
-      if (!paused){
-        phaseTimeLeft -= 0.2;
-        const display = Math.max(0, Math.ceil(phaseTimeLeft));
-        if (els.chkVoice.checked && display !== lastSpoken){
-          lastSpoken = display;
-          if (display > 0 && display <= 5) speak(String(display));
-        }
-        if (phaseTimeLeft <= 0){
-          beep(cur.key==='exhale' ? 520 : 440, 0.10, 0.10);
-          vibrate([12,30,12]);
-          phaseIndex++;
-          lastSpoken = -1;
-          if (phaseIndex % s.length === 0){
-            cycle++;
-            if (cycle > +els.cycles.value){ round++; if (round > +els.rounds.value){ stop(); return; } cycle = 1; }
-          }
-          const nxt = s[phaseIndex % s.length];
-          phaseTimeLeft = nxt.dur;
-          updateHUD(nxt.label, Math.max(0, Math.ceil(phaseTimeLeft)));
-          if (els.chkVoice.checked) speak(nxt.label);
-        } else {
-          updateHUD(cur.label, display);
-        }
-        progressUpdate(s);
-      }
-    }
-    function start(){
-      if(running) return;
-      ensureAudio(); ensurePlay();
-      if (els.chkSceneAudio.checked){ els.bgVideo.muted = false; els.bgVideo.volume = parseFloat(els.volScene.value || '0.5'); stopAmbient(); }
-      else { els.bgVideo.muted = true; if (els.chkAmbient.checked) startAmbient(); }
-      speak('Start'); vibrate([20]); beep(660, 0.12, 0.12);
-      running = true; paused = false; round = 1; cycle = 1; phaseIndex = 0; lastSpoken=-1;
-      const s = seq(); phaseTimeLeft = s[0].dur;
-      updateHUD(s[0].label, Math.max(0, Math.ceil(phaseTimeLeft)));
-      if (els.chkVoice.checked) speak(s[0].label);
-      els.btnStart.disabled = true; els.btnPause.disabled = false; els.btnStop.disabled = false;
-      interval = setInterval(tick, 200);
-    }
-    function togglePause(){
-      if(!running) return;
-      paused = !paused;
-      els.btnPause.textContent = paused ? '▶ Resume' : '⏸️ Pause';
-    }
-    function stop(){
-      running=false; paused=false; clearInterval(interval);
-      els.btnStart.disabled = false; els.btnPause.disabled = true; els.btnStop.disabled = true; els.btnPause.textContent='⏸️ Pause';
-      updateHUD('Ready',0); document.documentElement.style.setProperty('--progress','0%');
-      speak('Stop');
-    }
-
-    // ===== Theme / Background Video + Prefs =====
+    // Files
     const THEME_MEDIA = {
       ocean:     { webm: 'media/ocean.webm',     mp4: 'media/ocean.mp4',     glow:'rgba(56,189,248,0.35)'  },
       fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4', glow:'rgba(251,146,60,0.35)' },
       waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4', glow:'rgba(45,212,191,0.35)' }
     };
-    const PREFS = {
-      theme:'ms.theme', video:'ms.video', dim:'ms.dim',
-      scene:'ms.sceneAudio', sceneVol:'ms.sceneVol',
-      ambient:'ms.ambient', ambVol:'ms.ambVol', beeps:'ms.beeps', voice:'ms.voice', vib:'ms.vib', crackle:'ms.crackle'
-    };
-    function savePrefs(){
-      localStorage.setItem(PREFS.theme, els.selTheme.value);
-      localStorage.setItem(PREFS.video, els.chkVideo.checked ? '1':'0');
-      localStorage.setItem(PREFS.dim, String(els.dimSlider.value));
-      localStorage.setItem(PREFS.scene, els.chkSceneAudio.checked ? '1':'0');
-      localStorage.setItem(PREFS.sceneVol, String(els.volScene.value));
-      localStorage.setItem(PREFS.ambient, els.chkAmbient.checked ? '1':'0');
-      localStorage.setItem(PREFS.ambVol, String(els.volAmbient.value));
-      localStorage.setItem(PREFS.beeps, els.chkBeeps.checked ? '1':'0');
-      localStorage.setItem(PREFS.voice, els.chkVoice.checked ? '1':'0');
-      localStorage.setItem(PREFS.vib, els.chkVibrate.checked ? '1':'0');
-      localStorage.setItem(PREFS.crackle, els.chkCrackle.checked ? '1':'0');
-    }
-    function loadPrefs(){
-      els.selTheme.value   = localStorage.getItem(PREFS.theme) || 'ocean';
-      els.chkVideo.checked = localStorage.getItem(PREFS.video) !== '0';
-      const d = parseFloat(localStorage.getItem(PREFS.dim) ?? '0.5');
-      els.dimSlider.value = isNaN(d) ? 0.5 : d;
-      els.chkSceneAudio.checked = (localStorage.getItem(PREFS.scene) ?? '1') === '1'; // default ON
-      els.volScene.value = localStorage.getItem(PREFS.sceneVol) ?? '0.5';
-      els.chkAmbient.checked = localStorage.getItem(PREFS.ambient) === '1';
-      els.volAmbient.value = localStorage.getItem(PREFS.ambVol) ?? '0.25';
-      els.chkBeeps.checked = localStorage.getItem(PREFS.beeps) !== '0';
-      els.chkVoice.checked = localStorage.getItem(PREFS.voice) === '1';
-      els.chkVibrate.checked = localStorage.getItem(PREFS.vib) !== '0';
-      els.chkCrackle.checked = (localStorage.getItem(PREFS.crackle) ?? '1') === '1';
-      document.documentElement.style.setProperty('--dim', els.dimSlider.value);
-    }
 
-    // Smooth ramps
+    // Audio
+    function ensurePlay(){ try{ els.bgVideo.play(); }catch{} }
+
+    // Ramps
     function rampVolume(el, to, ms){
       return new Promise(resolve=>{
         const from = el.volume;
@@ -541,215 +275,107 @@
         requestAnimationFrame(step);
       });
     }
-    function rampGain(gainNode, to, ms){
-      return new Promise(resolve=>{
-        if(!gainNode){ resolve(); return; }
-        const from = gainNode.gain.value;
-        const start = performance.now();
-        function step(now){
-          const t = Math.min(1, (now - start)/ms);
-          gainNode.gain.value = from + (to - from) * t;
-          if (t < 1) requestAnimationFrame(step); else resolve();
-        }
-        requestAnimationFrame(step);
-      });
-    }
 
-    // Apply theme (visual fade + theme-coloured glow + audio crossfade)
-    let _themeLoading = false;
+    let loading=false;
     async function applyTheme(){
-      if(_themeLoading) return;
-      _themeLoading = true;
-      const theme = els.selTheme.value;
-      if(!els.chkVideo.checked || theme==='none'){
-        els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); savePrefs(); return;
-      }
-      const m = THEME_MEDIA[theme];
-      if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); savePrefs(); return; }
-
-      // Set theme glow color & trigger pulse
-      document.documentElement.style.setProperty('--glow', m.glow || 'rgba(56,189,248,0.35)');
-      els.glow.classList.remove('glow-active'); void els.glow.offsetWidth; // restart animation
-      els.glow.classList.add('glow-active');
-
-      // Visual fade out (video)
-      els.bgVideo.style.opacity = 0;
-
-      const targetVol = parseFloat(els.volScene.value || '0.5');
-      // If scene audio is currently active, fade it out
-      if (!els.bgVideo.muted && els.bgVideo.volume > 0){
-        try{ await rampVolume(els.bgVideo, 0, 300); }catch{}
-      }
-
-      // Delay half the glow duration (~350ms) before swapping sources (feels synced)
-      await new Promise(r => setTimeout(r, 350));
-
-      // Swap sources
-      const vtag='?v=20';
-      els.bgSrcWebm.src = m.webm + vtag;
-      els.bgSrcMp4.src  = m.mp4  + vtag;
-      els.bgVideo.load();
-      els.bgVideo.style.display='';
-      ensurePlay();
-
-      // Auto-enable scene audio + disable ambient
-      els.chkSceneAudio.checked = true;
-      els.chkAmbient.checked = false; stopAmbient();
-      els.bgVideo.muted = false;
-      els.bgVideo.volume = 0.0; // start at 0, ramp in
-      savePrefs();
-
-      // Fireplace crackle handling
-      if(theme === 'fireplace' && els.chkCrackle.checked){
-        crackle.start();
-        crackle.setVolume(parseFloat(els.volScene.value || '0.5'));
-      } else {
-        crackle.stop();
-      }
-
-      // When ready, fade video in and ramp volume up
-      // Fallback: if nothing fires within 1500ms, try forcing MP4-only (some Android WebViews)
-      const fallbackTimer = setTimeout(()=>{
-        try{
-          // force MP4 path only by clearing WebM (or vice versa if needed)
-          els.bgSrcWebm.src = '';
-          els.bgVideo.load();
-          ensurePlay();
-        }catch{}
-      }, 1500);
-
-      const onCanPlay = async () => { clearTimeout(fallbackTimer);
-        els.bgVideo.removeEventListener('canplay', onCanPlay);
-        els.bgVideo.style.opacity = 1;
-        try{ await rampVolume(els.bgVideo, targetVol, 600); }catch{ els.bgVideo.volume = targetVol; }
-      };
-      els.bgVideo.addEventListener('canplay', onCanPlay, { once:true });
-    }
-    finally { _themeLoading = false; }
-
-    // ===== Bind UI =====
-    function addPressFeedback(btn, onTrigger){
-      if(!btn) return;
-      const pressOn = (e)=>{ e.preventDefault(); btn.classList.add('is-pressing'); btn.setAttribute('aria-pressed','true'); };
-      const pressOff = (e)=>{ btn.classList.remove('is-pressing'); btn.setAttribute('aria-pressed','false'); };
-      const trigger = (e)=>{ e.preventDefault(); e.stopPropagation(); pressOff(); onTrigger?.(); };
-      btn.addEventListener('touchstart', pressOn, {passive:false});
-      btn.addEventListener('pointerdown', pressOn, {passive:false});
-      btn.addEventListener('mousedown', pressOn);
-      btn.addEventListener('touchend', trigger, {passive:false});
-      btn.addEventListener('pointerup', trigger, {passive:false});
-      btn.addEventListener('mouseup', trigger);
-      btn.addEventListener('mouseleave', pressOff);
-      btn.addEventListener('click', (e)=>{ e.preventDefault(); trigger(e); });
-    }
-    addPressFeedback(els.btnStart, ()=>{ ensureAudio(); ensurePlay(); start(); });
-    els.btnPause.addEventListener('click', (e)=>{ e.preventDefault(); togglePause(); });
-    els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
-    els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
-
-    // Ambient <-> Scene crossfades (AUDIO ONLY) — kept
-    async function crossfadeToScene(){
-      ensureAudio(); ensurePlay();
-      const targetVol = parseFloat(els.volScene.value || '0.5');
-      if (ambientGain){ try{ await rampGain(ambientGain, 0.0, 300); }catch{} }
-      stopAmbient();
-      els.bgVideo.muted = false;
-      els.bgVideo.volume = 0.0;
-      try{ await rampVolume(els.bgVideo, targetVol, 550); }catch{ els.bgVideo.volume = targetVol; }
-      // if fireplace active and crackle enabled, ensure it's running
-      if(els.selTheme.value==='fireplace' && els.chkCrackle.checked){ crackle.start(); crackle.setVolume(parseFloat(els.volScene.value || '0.5')); }
-      else { crackle.stop(); }
-    }
-    async function crossfadeToAmbient(){
-      ensureAudio(); ensurePlay();
-      const targetGain = parseFloat(els.volAmbient.value || '0.25');
-      try{ await rampVolume(els.bgVideo, 0.0, 300); }catch{ els.bgVideo.volume = 0.0; }
-      els.bgVideo.muted = true;
-      if (!ambientNode){ startAmbient(); }
-      if (ambientGain){ ambientGain.gain.value = 0.0; try{ await rampGain(ambientGain, targetGain, 550); }catch{ ambientGain.gain.value = targetGain; } }
-      // mute fireplace crackle when ambient is chosen
-      crackle.stop();
-    }
-
-    // Scene audio + Ambient interlock with crossfades
-    els.chkSceneAudio.addEventListener('change', async ()=>{
-      if (els.chkSceneAudio.checked){
-        els.chkAmbient.checked = false;
-        await crossfadeToScene();
-      } else {
-        els.bgVideo.muted = true;
-        crackle.stop();
-      }
-      savePrefs();
-    });
-    els.volScene.addEventListener('input', ()=>{
-      els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
-      crackle.setVolume(parseFloat(els.volScene.value || '0.5'));
-      savePrefs();
-    });
-    els.chkAmbient.addEventListener('change', async ()=>{
-      if (els.chkAmbient.checked){
-        els.chkSceneAudio.checked = false;
-        await crossfadeToAmbient();
-      } else {
-        stopAmbient();
-      }
-      savePrefs();
-    });
-    els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value); savePrefs(); });
-    els.chkCrackle.addEventListener('change', ()=>{
-      if(els.selTheme.value==='fireplace' && els.chkSceneAudio.checked && els.chkCrackle.checked){ crackle.start(); crackle.setVolume(parseFloat(els.volScene.value || '0.5')); }
-      else { crackle.stop(); }
-      savePrefs();
-    });
-
-    // Timer
-    let tRun=false, tPause=false, tInt=null, tMs=0, tSet=0, tMode='work';
-    const fmt = ms => { const s=Math.max(0,Math.ceil(ms/1000)); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; };
-    function updTimer(){
-      let pill=document.getElementById('timerPill');
-      if(!pill){ pill=document.createElement('div'); pill.id='timerPill'; pill.style.cssText='position:fixed;top:10px;right:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-variant-numeric:tabular-nums;z-index:2'; document.body.appendChild(pill); }
-      pill.textContent = `⏱ ${fmt(tMs)} (Set ${tSet+1}/${+els.timerSets.value}${tMode==='rest'?' • Rest':''})`;
-    }
-    function timerStart(){
-      if(tRun) return;
-      ensureAudio(); ensurePlay();
-      tRun=true; tPause=false; tMode='work'; tSet=0; tMs=+els.timerMinutes.value*60*1000;
-      els.btnTimerPause.disabled=false; els.btnTimerStop.disabled=false;
-      updTimer();
-      tInt = setInterval(()=>{
-        if(!tRun || tPause) return;
-        tMs -= 200;
-        if(tMs<=0){
-          const total=+els.timerSets.value;
-          beep(700, 0.12, 0.12); vibrate([18]);
-          if(tMode==='work'){
-            const rest=+els.timerRest.value;
-            if(rest>0){ tMode='rest'; tMs=rest*60*1000; }
-            else { tSet++; if(tSet>=total){ return timerStop(true); } tMode='work'; tMs=+els.timerMinutes.value*60*1000; }
-          } else {
-            tSet++; if(tSet>=total){ return timerStop(true); } tMode='work'; tMs=+els.timerMinutes.value*60*1000;
-          }
+      if(loading) return;
+      loading=true;
+      try {
+        const theme = els.selTheme.value;
+        if(!els.chkVideo.checked || theme==='none'){
+          els.bgVideo.pause(); els.bgVideo.style.display='none'; log('Video off or theme none'); return;
         }
-        updTimer();
-      },200);
+        const m = THEME_MEDIA[theme];
+        if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; log('No mapping'); return; }
+
+        document.documentElement.style.setProperty('--glow', m.glow || 'rgba(56,189,248,0.35)');
+        els.glow.classList.remove('glow-active'); void els.glow.offsetWidth;
+        els.glow.classList.add('glow-active');
+
+        els.bgVideo.style.opacity=0;
+        await new Promise(r=>setTimeout(r, 300));
+
+        // Try WEBM first, then MP4 fallback, with error handlers
+        const vtag='?v=22';
+        let triedMp4=false;
+        let resolved=false;
+
+        function cleanup(){
+          els.bgVideo.removeEventListener('canplay', onCanPlay);
+          els.bgVideo.removeEventListener('error', onVideoError);
+          els.bgSrcWebm.removeEventListener('error', onSourceError);
+          els.bgSrcMp4.removeEventListener('error', onSourceError);
+        }
+
+        const onCanPlay = async () => {
+          if(resolved) return;
+          resolved=true; cleanup();
+          els.bgVideo.style.display='';
+          ensurePlay();
+          try{ await rampVolume(els.bgVideo, 0.5, 500); }catch{ els.bgVideo.volume=0.5; }
+          els.bgVideo.style.opacity=1;
+          log('canplay -> success');
+        };
+        const onVideoError = () => {
+          log('video error');
+          if(!triedMp4){
+            triedMp4=true;
+            els.bgSrcWebm.src=''; els.bgSrcMp4.src = m.mp4 + vtag;
+            els.bgVideo.load(); ensurePlay();
+          } else {
+            cleanup();
+            log('both sources failed');
+          }
+        };
+        const onSourceError = (e) => {
+          log('source error ' + (e.target===els.bgSrcWebm?'webm':'mp4'));
+          if(e.target===els.bgSrcWebm && !triedMp4){
+            triedMp4=true;
+            els.bgSrcWebm.src=''; els.bgSrcMp4.src = m.mp4 + vtag;
+            els.bgVideo.load(); ensurePlay();
+          }
+        };
+
+        els.bgVideo.addEventListener('canplay', onCanPlay);
+        els.bgVideo.addEventListener('error', onVideoError);
+        els.bgSrcWebm.addEventListener('error', onSourceError);
+        els.bgSrcMp4.addEventListener('error', onSourceError);
+
+        els.bgSrcWebm.src = m.webm + vtag;
+        els.bgSrcMp4.src  = m.mp4  + vtag;
+        els.bgVideo.muted=false;
+        els.bgVideo.volume=0.0;
+        els.bgVideo.load(); ensurePlay();
+
+        // Safety timeout: if nothing in 2s, try mp4-only
+        setTimeout(()=>{
+          if(!resolved && !triedMp4){
+            log('timeout -> try mp4 only');
+            triedMp4=true;
+            els.bgSrcWebm.src=''; els.bgSrcMp4.src = m.mp4 + vtag;
+            els.bgVideo.load(); ensurePlay();
+          }
+        }, 2000);
+      } finally {
+        // Give the swap a moment before allowing another change
+        setTimeout(()=>{ loading=false; }, 400);
+      }
     }
-    function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; }
-    function timerStop(final=false){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); }
 
-    // Init + listeners
-    loadPrefs(); applyTheme(); loadPreset();
-    els.selTheme.addEventListener('change', applyTheme);
+    // Prefs (minimal to keep focus)
+    function loadPrefs(){
+      const stored = localStorage.getItem('ms.theme') || 'ocean';
+      $('#selTheme').value = stored;
+      document.documentElement.style.setProperty('--dim', (localStorage.getItem('ms.dim') ?? '0.5'));
+    }
+    function saveTheme(){ try{ localStorage.setItem('ms.theme', els.selTheme.value); }catch{} }
+
+    // Bind
+    loadPrefs();
+    applyTheme();
+    els.selTheme.addEventListener('change', ()=>{ saveTheme(); applyTheme(); });
     els.chkVideo.addEventListener('change', applyTheme);
-    els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
-    document.getElementById('btnFullscreen').addEventListener('click', ()=>{
-      const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }
-    });
-
-    // Global unlock on first gesture
-    ['touchend','pointerup','click'].forEach(evt => {
-      document.body.addEventListener(evt, ()=>{ ensureAudio(); ensurePlay(); }, { once:true, passive:true });
-    });
+    $('#debugToggle').addEventListener('click', ()=>{}); // already handled earlier
   })();
   </script>
 </body>
