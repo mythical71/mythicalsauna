@@ -330,7 +330,6 @@
     };
 
     // ===== Ambient noise =====
-    let ambientGain=null, ambientNode=null;
     function startAmbient(){
       ensureAudio(); if(!audioCtx || ambientNode) return;
       const len = 2 * audioCtx.sampleRate;
@@ -557,7 +556,10 @@
     }
 
     // Apply theme (visual fade + theme-coloured glow + audio crossfade)
+    let _themeLoading = false;
     async function applyTheme(){
+      if(_themeLoading) return;
+      _themeLoading = true;
       const theme = els.selTheme.value;
       if(!els.chkVideo.checked || theme==='none'){
         els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); savePrefs(); return;
@@ -606,13 +608,24 @@
       }
 
       // When ready, fade video in and ramp volume up
-      const onCanPlay = async () => {
+      // Fallback: if nothing fires within 1500ms, try forcing MP4-only (some Android WebViews)
+      const fallbackTimer = setTimeout(()=>{
+        try{
+          // force MP4 path only by clearing WebM (or vice versa if needed)
+          els.bgSrcWebm.src = '';
+          els.bgVideo.load();
+          ensurePlay();
+        }catch{}
+      }, 1500);
+
+      const onCanPlay = async () => { clearTimeout(fallbackTimer);
         els.bgVideo.removeEventListener('canplay', onCanPlay);
         els.bgVideo.style.opacity = 1;
         try{ await rampVolume(els.bgVideo, targetVol, 600); }catch{ els.bgVideo.volume = targetVol; }
       };
       els.bgVideo.addEventListener('canplay', onCanPlay, { once:true });
     }
+    finally { _themeLoading = false; }
 
     // ===== Bind UI =====
     function addPressFeedback(btn, onTrigger){
