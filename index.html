@@ -204,6 +204,10 @@
             <span class="label">Vibrate on phase</span>
             <label><input id="chkVibrate" type="checkbox" checked> On</label>
           </div>
+          <div class="row">
+            <span class="label">Fireplace crackle (if no audio)</span>
+            <label><input id="chkCrackle" type="checkbox" checked> On</label>
+          </div>
         </div>
       </div>
 
@@ -249,6 +253,7 @@
       chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
       chkAmbient: $('#chkAmbient'), volAmbient: $('#volAmbient'),
       chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
+      chkCrackle: $('#chkCrackle'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4'),
       glow: $('#themeGlow')
     };
@@ -258,7 +263,74 @@
     function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
     function ensurePlay(){ try{ els.bgVideo.play(); }catch{} }
 
+    // ===== Fireplace CRACKLE (synth) =====
+    const crackle = {
+      g:null, noise:null, pops:[], running:false,
+      start(){
+        if(this.running || !els.chkCrackle.checked) return;
+        ensureAudio(); if(!audioCtx) return;
+        // base gentle noise
+        const len = 2 * audioCtx.sampleRate;
+        const buff = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+        const data = buff.getChannelData(0);
+        // pink-ish noise
+        let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+        for(let i=0;i<len;i++){
+          const white = Math.random()*2-1;
+          b0 = 0.99886*b0 + white*0.0555179;
+          b1 = 0.99332*b1 + white*0.0750759;
+          b2 = 0.96900*b2 + white*0.1538520;
+          b3 = 0.86650*b3 + white*0.3104856;
+          b4 = 0.55000*b4 + white*0.5329522;
+          b5 = -0.7616*b5 - white*0.0168980;
+          let out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white*0.5362;
+          out *= 0.11; b6 = white*0.115926;
+          data[i] = out;
+        }
+        const src = audioCtx.createBufferSource();
+        src.buffer = buff; src.loop = true;
+
+        const g = audioCtx.createGain(); g.gain.value = parseFloat(els.volScene.value || '0.35') * 0.6; // gentle base
+        src.connect(g); g.connect(audioCtx.destination); src.start();
+
+        this.noise = src; this.g = g; this.running = true;
+
+        // random pops
+        const makePop = () => {
+          if(!this.running) return;
+          const osc = audioCtx.createOscillator();
+          const eg = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = 80 + Math.random()*200; // low-mid
+          eg.gain.value = 0.0001;
+          osc.connect(eg); eg.connect(audioCtx.destination);
+          const now = audioCtx.currentTime;
+          const a = 0.001 + Math.random()*0.004;
+          const d = 0.08 + Math.random()*0.18;
+          eg.gain.setValueAtTime(0.0001, now);
+          eg.gain.linearRampToValueAtTime(0.18 + Math.random()*0.22, now + a);
+          eg.gain.exponentialRampToValueAtTime(0.0001, now + a + d);
+          osc.start(now);
+          osc.stop(now + a + d + 0.05);
+          // schedule next pop
+          const next = 0.05 + Math.random()*0.35; // ~3–15 pops/sec varying
+          this._popTimer = setTimeout(makePop, next*1000);
+        };
+        makePop();
+      },
+      stop(){
+        this.running = false;
+        try{ this.noise?.stop(); }catch{} this.noise=null;
+        if(this._popTimer) clearTimeout(this._popTimer);
+        try{ this.g?.disconnect(); }catch{} this.g=null;
+      },
+      setVolume(v){
+        if(this.g) this.g.gain.value = v * 0.6;
+      }
+    };
+
     // ===== Ambient noise =====
+    let ambientGain=null, ambientNode=null;
     function startAmbient(){
       ensureAudio(); if(!audioCtx || ambientNode) return;
       const len = 2 * audioCtx.sampleRate;
@@ -426,7 +498,7 @@
     const PREFS = {
       theme:'ms.theme', video:'ms.video', dim:'ms.dim',
       scene:'ms.sceneAudio', sceneVol:'ms.sceneVol',
-      ambient:'ms.ambient', ambVol:'ms.ambVol', beeps:'ms.beeps', voice:'ms.voice', vib:'ms.vib'
+      ambient:'ms.ambient', ambVol:'ms.ambVol', beeps:'ms.beeps', voice:'ms.voice', vib:'ms.vib', crackle:'ms.crackle'
     };
     function savePrefs(){
       localStorage.setItem(PREFS.theme, els.selTheme.value);
@@ -439,6 +511,7 @@
       localStorage.setItem(PREFS.beeps, els.chkBeeps.checked ? '1':'0');
       localStorage.setItem(PREFS.voice, els.chkVoice.checked ? '1':'0');
       localStorage.setItem(PREFS.vib, els.chkVibrate.checked ? '1':'0');
+      localStorage.setItem(PREFS.crackle, els.chkCrackle.checked ? '1':'0');
     }
     function loadPrefs(){
       els.selTheme.value   = localStorage.getItem(PREFS.theme) || 'ocean';
@@ -452,6 +525,7 @@
       els.chkBeeps.checked = localStorage.getItem(PREFS.beeps) !== '0';
       els.chkVoice.checked = localStorage.getItem(PREFS.voice) === '1';
       els.chkVibrate.checked = localStorage.getItem(PREFS.vib) !== '0';
+      els.chkCrackle.checked = (localStorage.getItem(PREFS.crackle) ?? '1') === '1';
       document.documentElement.style.setProperty('--dim', els.dimSlider.value);
     }
 
@@ -486,10 +560,10 @@
     async function applyTheme(){
       const theme = els.selTheme.value;
       if(!els.chkVideo.checked || theme==='none'){
-        els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return;
+        els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); savePrefs(); return;
       }
       const m = THEME_MEDIA[theme];
-      if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
+      if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); savePrefs(); return; }
 
       // Set theme glow color & trigger pulse
       document.documentElement.style.setProperty('--glow', m.glow || 'rgba(56,189,248,0.35)');
@@ -509,7 +583,7 @@
       await new Promise(r => setTimeout(r, 350));
 
       // Swap sources
-      const vtag='?v=19';
+      const vtag='?v=20';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
@@ -522,6 +596,14 @@
       els.bgVideo.muted = false;
       els.bgVideo.volume = 0.0; // start at 0, ramp in
       savePrefs();
+
+      // Fireplace crackle handling
+      if(theme === 'fireplace' && els.chkCrackle.checked){
+        crackle.start();
+        crackle.setVolume(parseFloat(els.volScene.value || '0.5'));
+      } else {
+        crackle.stop();
+      }
 
       // When ready, fade video in and ramp volume up
       const onCanPlay = async () => {
@@ -552,7 +634,7 @@
     els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
     els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
-    // Ambient <-> Scene crossfades (AUDIO ONLY) — kept from v18
+    // Ambient <-> Scene crossfades (AUDIO ONLY) — kept
     async function crossfadeToScene(){
       ensureAudio(); ensurePlay();
       const targetVol = parseFloat(els.volScene.value || '0.5');
@@ -561,6 +643,9 @@
       els.bgVideo.muted = false;
       els.bgVideo.volume = 0.0;
       try{ await rampVolume(els.bgVideo, targetVol, 550); }catch{ els.bgVideo.volume = targetVol; }
+      // if fireplace active and crackle enabled, ensure it's running
+      if(els.selTheme.value==='fireplace' && els.chkCrackle.checked){ crackle.start(); crackle.setVolume(parseFloat(els.volScene.value || '0.5')); }
+      else { crackle.stop(); }
     }
     async function crossfadeToAmbient(){
       ensureAudio(); ensurePlay();
@@ -569,6 +654,8 @@
       els.bgVideo.muted = true;
       if (!ambientNode){ startAmbient(); }
       if (ambientGain){ ambientGain.gain.value = 0.0; try{ await rampGain(ambientGain, targetGain, 550); }catch{ ambientGain.gain.value = targetGain; } }
+      // mute fireplace crackle when ambient is chosen
+      crackle.stop();
     }
 
     // Scene audio + Ambient interlock with crossfades
@@ -578,10 +665,15 @@
         await crossfadeToScene();
       } else {
         els.bgVideo.muted = true;
+        crackle.stop();
       }
       savePrefs();
     });
-    els.volScene.addEventListener('input', ()=>{ els.bgVideo.volume = parseFloat(els.volScene.value || '0.5'); savePrefs(); });
+    els.volScene.addEventListener('input', ()=>{
+      els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
+      crackle.setVolume(parseFloat(els.volScene.value || '0.5'));
+      savePrefs();
+    });
     els.chkAmbient.addEventListener('change', async ()=>{
       if (els.chkAmbient.checked){
         els.chkSceneAudio.checked = false;
@@ -592,6 +684,11 @@
       savePrefs();
     });
     els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value); savePrefs(); });
+    els.chkCrackle.addEventListener('change', ()=>{
+      if(els.selTheme.value==='fireplace' && els.chkSceneAudio.checked && els.chkCrackle.checked){ crackle.start(); crackle.setVolume(parseFloat(els.volScene.value || '0.5')); }
+      else { crackle.stop(); }
+      savePrefs();
+    });
 
     // Timer
     let tRun=false, tPause=false, tInt=null, tMs=0, tSet=0, tMode='work';
