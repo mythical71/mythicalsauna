@@ -17,7 +17,9 @@
       color:var(--text); background:var(--bg);
     }
     /* Background */
-    #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; background:#000; pointer-events:none;}
+    #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; background:#000; pointer-events:none;
+      transition: opacity .4s ease; opacity:1; /* visual fade used only on theme change */
+    }
     body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:0; pointer-events:none;}
     /* Layout */
     .app{max-width:900px; margin:0 auto; padding:16px;
@@ -60,9 +62,9 @@
     .count{font-size:clamp(40px,10vw,72px); font-weight:900; line-height:1.05}
     .hint{font-size:12px; color:var(--muted)}
     .chips{display:flex; flex-wrap:wrap; gap:8px}
+    .chip.active{outline:2px solid var(--accent)}
     .chip{padding:8px 12px; border-radius:999px; background:rgba(255,255,255,.06);
       border:1px solid rgba(255,255,255,.1); cursor:pointer; font-weight:600}
-    .chip.active{outline:2px solid var(--accent)}
     .twocol{display:grid; grid-template-columns:1fr 1fr; gap:12px}
     @media (max-width: 900px){ .twocol{grid-template-columns:1fr} .circle-wrap{margin:8px 0} }
     .footer{position:fixed; left:0; right:0; bottom:0; height:var(--footer-h);
@@ -438,25 +440,74 @@
       els.chkVibrate.checked = localStorage.getItem(PREFS.vib) !== '0';
       document.documentElement.style.setProperty('--dim', els.dimSlider.value);
     }
-    function applyTheme(){
+
+    // Smooth ramps
+    function rampVolume(el, to, ms){
+      return new Promise(resolve=>{
+        const from = el.volume;
+        const start = performance.now();
+        function step(now){
+          const t = Math.min(1, (now - start)/ms);
+          el.volume = from + (to - from) * t;
+          if (t < 1) requestAnimationFrame(step); else resolve();
+        }
+        requestAnimationFrame(step);
+      });
+    }
+    function rampGain(gainNode, to, ms){
+      return new Promise(resolve=>{
+        if(!gainNode){ resolve(); return; }
+        const from = gainNode.gain.value;
+        const start = performance.now();
+        function step(now){
+          const t = Math.min(1, (now - start)/ms);
+          gainNode.gain.value = from + (to - from) * t;
+          if (t < 1) requestAnimationFrame(step); else resolve();
+        }
+        requestAnimationFrame(step);
+      });
+    }
+
+    // Apply theme with visual + audio crossfade (audio part already in v16)
+    async function applyTheme(){
       const theme = els.selTheme.value;
       if(!els.chkVideo.checked || theme==='none'){
         els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return;
       }
       const m = THEME_MEDIA[theme];
       if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
-      const vtag='?v=15';
+
+      // Visual fade out
+      els.bgVideo.style.opacity = 0;
+
+      const targetVol = parseFloat(els.volScene.value || '0.5');
+      // Audio fade out if scene audio is active
+      if (!els.bgVideo.muted && els.bgVideo.volume > 0){
+        try{ await rampVolume(els.bgVideo, 0, 350); }catch{}
+      }
+
+      // Swap sources
+      const vtag='?v=17';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
       els.bgVideo.style.display='';
       ensurePlay();
-      // Auto-enable scene audio on theme change, and disable ambient
+
+      // Auto-enable scene audio + disable ambient
       els.chkSceneAudio.checked = true;
       els.chkAmbient.checked = false; stopAmbient();
       els.bgVideo.muted = false;
-      els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
+      els.bgVideo.volume = 0.0; // start at 0, ramp in
       savePrefs();
+
+      // When ready, fade in
+      const onCanPlay = async () => {
+        els.bgVideo.removeEventListener('canplay', onCanPlay);
+        els.bgVideo.style.opacity = 1;
+        try{ await rampVolume(els.bgVideo, targetVol, 600); }catch{ els.bgVideo.volume = targetVol; }
+      };
+      els.bgVideo.addEventListener('canplay', onCanPlay, { once:true });
     }
 
     // ===== Bind UI =====
@@ -479,20 +530,51 @@
     els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
     els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
-    // Scene audio + Ambient interlock
-    els.chkSceneAudio.addEventListener('change', ()=>{
+    // Ambient <-> Scene crossfades (AUDIO ONLY)
+    async function crossfadeToScene(){
+      ensureAudio(); ensurePlay();
+      const targetVol = parseFloat(els.volScene.value || '0.5');
+      // Fade ambient down then stop
+      if (ambientGain){ try{ await rampGain(ambientGain, 0.0, 350); }catch{} }
+      stopAmbient();
+      // Unmute video at 0 and ramp up
+      els.bgVideo.muted = false;
+      els.bgVideo.volume = 0.0;
+      try{ await rampVolume(els.bgVideo, targetVol, 600); }catch{ els.bgVideo.volume = targetVol; }
+    }
+    async function crossfadeToAmbient(){
+      ensureAudio(); ensurePlay();
+      const targetGain = parseFloat(els.volAmbient.value || '0.25');
+      // Fade scene down
+      try{ await rampVolume(els.bgVideo, 0.0, 350); }catch{ els.bgVideo.volume = 0.0; }
+      els.bgVideo.muted = true;
+      // Start ambient at 0 and ramp up
+      if (!ambientNode){ startAmbient(); }
+      if (ambientGain){ const prev = ambientGain.gain.value; ambientGain.gain.value = 0.0; try{ await rampGain(ambientGain, targetGain, 600); }catch{ ambientGain.gain.value = targetGain; } }
+    }
+
+    // Scene audio + Ambient interlock with crossfades
+    els.chkSceneAudio.addEventListener('change', async ()=>{
       if (els.chkSceneAudio.checked){
-        els.bgVideo.muted = false;
-        ensurePlay();
-        els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
-        els.chkAmbient.checked = false; stopAmbient();
+        els.chkAmbient.checked = false;
+        await crossfadeToScene();
       } else {
+        // If turned off scene and ambient not requested, just mute video
         els.bgVideo.muted = true;
       }
       savePrefs();
     });
     els.volScene.addEventListener('input', ()=>{ els.bgVideo.volume = parseFloat(els.volScene.value || '0.5'); savePrefs(); });
-    els.chkAmbient.addEventListener('change', ()=>{ if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; } else { stopAmbient(); } savePrefs(); });
+    els.chkAmbient.addEventListener('change', async ()=>{
+      if (els.chkAmbient.checked){
+        els.chkSceneAudio.checked = false;
+        await crossfadeToAmbient();
+      } else {
+        // Turned ambient off -> stop ambient
+        stopAmbient();
+      }
+      savePrefs();
+    });
     els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value); savePrefs(); });
 
     // Timer
