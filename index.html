@@ -16,8 +16,10 @@
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial;
       color:var(--text); background:var(--bg);
     }
-    #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; background:#000;}
-    body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:0}
+    /* Background */
+    #bgVideo{position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; background:#000; pointer-events:none;}
+    body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:0; pointer-events:none;}
+    /* Layout */
     .app{max-width:900px; margin:0 auto; padding:16px;
          padding-bottom:calc(var(--footer-h) + env(safe-area-inset-bottom) + 8px);
          position:relative; z-index:1}
@@ -27,6 +29,7 @@
     button{appearance:none; border:0; background:linear-gradient(180deg,#1f2a4a,#10162b); color:var(--text);
       padding:10px 14px; border-radius:12px; font-weight:600; cursor:pointer;
       box-shadow:0 6px 18px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.06);
+      transition: transform .06s ease, box-shadow .12s ease, filter .12s ease;
     }
     button:disabled{opacity:.55; cursor:not-allowed}
     .btn-ghost{background:transparent; border:1px solid rgba(255,255,255,.12)}
@@ -69,10 +72,17 @@
       border-top:1px solid rgba(255,255,255,.08); display:flex; align-items:center; gap:12px;
     }
     .grow{flex:1}
+    #btnStart.is-pressing, #btnStart:active {
+      transform: translateY(1px) scale(0.98);
+      box-shadow: 0 3px 10px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.08);
+      filter: brightness(0.95);
+      outline: 2px solid rgba(34,211,238,.5);
+      outline-offset: 0;
+    }
   </style>
 </head>
 <body>
-  <!-- Fullscreen animated background -->
+  <!-- Background -->
   <video id="bgVideo" autoplay muted loop playsinline>
     <source id="bgSrcWebm" src="" type="video/webm">
     <source id="bgSrcMp4"  src="" type="video/mp4">
@@ -128,7 +138,7 @@
         </div>
 
         <div class="card grid">
-          <!-- Theme / Background controls -->
+          <!-- Theme / Background / Cues controls -->
           <div class="row">
             <span class="label">Theme</span>
             <select id="selTheme">
@@ -145,6 +155,14 @@
           <div class="row">
             <span class="label">Background dim</span>
             <input id="dimSlider" type="range" min="0" max="0.85" step="0.01" value="0.5" class="range">
+          </div>
+          <div class="row">
+            <span class="label">Cue beeps</span>
+            <label><input id="chkBeeps" type="checkbox" checked> On</label>
+          </div>
+          <div class="row">
+            <span class="label">Vibrate on phase</span>
+            <label><input id="chkVibrate" type="checkbox" checked> On</label>
           </div>
         </div>
       </div>
@@ -167,7 +185,7 @@
 
   <div class="footer row">
     <div class="row grow" style="gap:8px">
-      <button id="btnStart">▶ Start</button>
+      <button id="btnStart" aria-pressed="false">▶ Start</button>
       <button id="btnPause" disabled>⏸️ Pause</button>
       <button id="btnStop" disabled>■ Stop</button>
     </div>
@@ -188,11 +206,51 @@
       timerMinutes: $('#timerMinutes'), timerSets: $('#timerSets'), timerRest: $('#timerRest'),
       btnTimerStart: $('#btnTimerStart'), btnTimerPause: $('#btnTimerPause'), btnTimerStop: $('#btnTimerStop'),
       selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider'),
+      chkBeeps: $('#chkBeeps'), chkVibrate: $('#chkVibrate'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4')
     };
 
-    // Guard: if any critical element is missing, stop to avoid JS errors
-    for (const [k,v] of Object.entries(els)) { if (!v) { console.error('Missing element:', k); } }
+    // ===== Utility: button press visual (mobile-friendly) =====
+    function addPressFeedback(btn, onTrigger){
+      if(!btn) return;
+      const pressOn = (e)=>{ e.preventDefault(); btn.classList.add('is-pressing'); btn.setAttribute('aria-pressed','true'); };
+      const pressOff = (e)=>{ btn.classList.remove('is-pressing'); btn.setAttribute('aria-pressed','false'); };
+      const trigger = (e)=>{ e.preventDefault(); e.stopPropagation(); pressOff(); onTrigger?.(); };
+      btn.addEventListener('touchstart', pressOn, {passive:false});
+      btn.addEventListener('pointerdown', pressOn, {passive:false});
+      btn.addEventListener('mousedown', pressOn);
+      btn.addEventListener('touchend', trigger, {passive:false});
+      btn.addEventListener('pointerup', trigger, {passive:false});
+      btn.addEventListener('mouseup', trigger);
+      btn.addEventListener('mouseleave', pressOff);
+      btn.addEventListener('click', (e)=>{ e.preventDefault(); trigger(e); }); // fallback
+    }
+
+    // ===== Audio + Haptics =====
+    let audioCtx = null;
+    function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
+    function beep(freq=440, duration=0.12, gain=0.12){
+      if(!els.chkBeeps.checked) return;
+      try{
+        ensureAudio();
+        const ctx=audioCtx; if(!ctx) return;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq;
+        g.gain.value = 0.0001;
+        osc.connect(g); g.connect(ctx.destination);
+        const now = ctx.currentTime;
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(gain, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+      }catch{}
+    }
+    function haptic(pattern=[25]){
+      if(!els.chkVibrate.checked) return;
+      if (navigator.vibrate) { try{ navigator.vibrate(pattern); }catch{} }
+    }
 
     // ===== Presets =====
     const PRESET_STORAGE_KEY = 'ms.preset';
@@ -214,17 +272,11 @@
       if (p.rounds != null)  els.rounds.value= p.rounds;
       updateVals();
     }
-    function loadPreset(){
-      try{
-        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
-        if(raw) applyPreset(JSON.parse(raw));
-      }catch{}
-    }
+    function loadPreset(){ try{ const raw = localStorage.getItem(PRESET_STORAGE_KEY); if(raw) applyPreset(JSON.parse(raw)); }catch{} }
     function savePreset(p){ try{ localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(p)); }catch{} }
     if (presetsEl) {
       presetsEl.addEventListener('click', (e) => {
-        const chip = e.target.closest('.chip');
-        if (!chip) return;
+        const chip = e.target.closest('.chip'); if (!chip) return;
         [...presetsEl.children].forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         const p = JSON.parse(chip.dataset.preset);
@@ -233,20 +285,19 @@
       });
     }
 
-    // ===== Breathing engine (interval-based for reliability) =====
+    // ===== Breathing engine (interval-based) =====
     let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
     function seq(){
       const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value];
       let s = arr.map((v,i)=>({dur:Math.max(0,v), ...phasesBase[i]}));
-      // Ensure at least inhale/exhale exist with duration > 0
       if (s[0].dur===0 && s[2].dur===0) { s[0].dur=4; s[2].dur=4; }
       return s.filter(p=>p.dur>0);
     }
     function updateHUD(label,count){
-      $('#phase').textContent = label;
-      $('#counter').textContent = count;
-      $('#roundsHint').textContent = `Rounds: ${round||0} • Cycle: ${cycle||0}`;
+      document.getElementById('phase').textContent = label;
+      document.getElementById('counter').textContent = count;
+      document.getElementById('roundsHint').textContent = `Rounds: ${round||0} • Cycle: ${cycle||0}`;
     }
     function progressUpdate(s){
       const total=s.reduce((a,b)=>a+b.dur,0);
@@ -260,6 +311,9 @@
       if (!paused){
         phaseTimeLeft -= 0.2;
         if (phaseTimeLeft <= 0){
+          // phase transition cues
+          beep(cur.key==='exhale' ? 520 : 440, 0.10, 0.10);
+          haptic([12,30,12]);
           phaseIndex++;
           if (phaseIndex % s.length === 0){
             cycle++;
@@ -276,28 +330,35 @@
     }
     function start(){
       if(running) return;
+      ensureAudio(); // unlock audio on gesture
+      haptic([20]);  // short confirm on start
+      beep(660, 0.12, 0.12);
       running = true; paused = false; round = 1; cycle = 1; phaseIndex = 0;
       const s = seq(); phaseTimeLeft = s[0].dur;
       updateHUD(s[0].label, Math.max(0, Math.ceil(phaseTimeLeft)));
       els.btnStart.disabled = true; els.btnPause.disabled = false; els.btnStop.disabled = false;
       interval = setInterval(tick, 200);
-      console.log('Breathing started');
     }
     function togglePause(){
       if(!running) return;
       paused = !paused;
       els.btnPause.textContent = paused ? '▶ Resume' : '⏸️ Pause';
+      beep(paused?350:500, 0.08, 0.08);
+      haptic([10]);
     }
     function stop(){
       running=false; paused=false; clearInterval(interval);
       els.btnStart.disabled = false; els.btnPause.disabled = true; els.btnStop.disabled = true; els.btnPause.textContent='⏸️ Pause';
       updateHUD('Ready',0); document.documentElement.style.setProperty('--progress','0%');
-      console.log('Breathing stopped');
+      beep(260, 0.10, 0.08);
+      haptic([8,30,8]);
     }
-    els.btnStart.addEventListener('click', start);
-    els.btnPause.addEventListener('click', togglePause);
-    els.btnStop.addEventListener('click', stop);
-    els.btnReset.addEventListener('click', ()=>{ if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
+
+    // Bind Start with visual feedback + mobile support
+    addPressFeedback(els.btnStart, start);
+    els.btnPause.addEventListener('click', (e)=>{ e.preventDefault(); togglePause(); });
+    els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
+    els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
     // ===== Timer =====
     let tRun=false, tPause=false, tInt=null, tMs=0, tSet=0, tMode='work';
@@ -309,6 +370,7 @@
     }
     function timerStart(){
       if(tRun) return;
+      ensureAudio();
       tRun=true; tPause=false; tMode='work'; tSet=0; tMs=+els.timerMinutes.value*60*1000;
       els.btnTimerPause.disabled=false; els.btnTimerStop.disabled=false;
       updTimer();
@@ -317,41 +379,46 @@
         tMs -= 200;
         if(tMs<=0){
           const total=+els.timerSets.value;
+          beep(700, 0.12, 0.12); haptic([18]);
           if(tMode==='work'){
             const rest=+els.timerRest.value;
             if(rest>0){ tMode='rest'; tMs=rest*60*1000; }
-            else { tSet++; if(tSet>=total){ return timerStop(); } tMode='work'; tMs=+els.timerMinutes.value*60*1000; }
+            else { tSet++; if(tSet>=total){ return timerStop(true); } tMode='work'; tMs=+els.timerMinutes.value*60*1000; }
           } else {
-            tSet++; if(tSet>=total){ return timerStop(); } tMode='work'; tMs=+els.timerMinutes.value*60*1000;
+            tSet++; if(tSet>=total){ return timerStop(true); } tMode='work'; tMs=+els.timerMinutes.value*60*1000;
           }
         }
         updTimer();
       },200);
-      console.log('Timer started');
     }
-    function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; }
-    function timerStop(){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); console.log('Timer stopped'); }
-    els.btnTimerStart.addEventListener('click', timerStart);
-    els.btnTimerPause.addEventListener('click', timerPause);
-    els.btnTimerStop.addEventListener('click', timerStop);
+    function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; beep(420,0.08,0.08); haptic([10]); }
+    function timerStop(final=false){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); if(final){ beep(280,0.14,0.12); haptic([15,40,15]); } }
 
-    // ===== Theme / Background Video =====
+    addPressFeedback(els.btnTimerStart, timerStart);
+    els.btnTimerPause.addEventListener('click', (e)=>{ e.preventDefault(); timerPause(); });
+    els.btnTimerStop.addEventListener('click', (e)=>{ e.preventDefault(); timerStop(); });
+
+    // ===== Theme / Background Video + Prefs =====
     const THEME_MEDIA = {
       ocean:     { webm: 'media/ocean.webm',     mp4: 'media/ocean.mp4' },
       fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4' },
       waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4' }
     };
-    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim' };
+    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', beeps:'ms.beeps', vib:'ms.vibrate' };
     function savePrefs(){
       localStorage.setItem(PREFS.theme, els.selTheme.value);
       localStorage.setItem(PREFS.video, els.chkVideo.checked ? '1':'0');
       localStorage.setItem(PREFS.dim, String(els.dimSlider.value));
+      localStorage.setItem(PREFS.beeps, els.chkBeeps.checked ? '1':'0');
+      localStorage.setItem(PREFS.vib, els.chkVibrate.checked ? '1':'0');
     }
     function loadPrefs(){
       els.selTheme.value   = localStorage.getItem(PREFS.theme) || 'ocean';
       els.chkVideo.checked = localStorage.getItem(PREFS.video) !== '0';
       const d = parseFloat(localStorage.getItem(PREFS.dim) ?? '0.5');
       els.dimSlider.value = isNaN(d) ? 0.5 : d;
+      els.chkBeeps.checked = localStorage.getItem(PREFS.beeps) !== '0';
+      els.chkVibrate.checked = localStorage.getItem(PREFS.vib) !== '0';
       document.documentElement.style.setProperty('--dim', els.dimSlider.value);
     }
     async function ensurePlay(){ try{ await els.bgVideo.play(); }catch{} }
@@ -362,35 +429,28 @@
       }
       const m = THEME_MEDIA[theme];
       if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
-      const vtag='?v=8';
+      const vtag='?v=11';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
       els.bgVideo.style.display='';
       ensurePlay().finally(savePrefs);
-      console.log('Theme applied:', theme);
     }
-    loadPrefs();
-    applyTheme();
-    loadPreset();
-
-    // listeners
+    loadPrefs(); applyTheme(); loadPreset();
     els.selTheme.addEventListener('change', applyTheme);
     els.chkVideo.addEventListener('change', applyTheme);
-    els.dimSlider.addEventListener('input', ()=>{
-      document.documentElement.style.setProperty('--dim', els.dimSlider.value);
-      savePrefs();
-    });
+    els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
+    els.chkBeeps.addEventListener('change', savePrefs);
+    els.chkVibrate.addEventListener('change', savePrefs);
 
     // Fullscreen
     document.getElementById('btnFullscreen').addEventListener('click', ()=>{
       const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }
     });
 
-    // Unlock playback after user gesture
-    els.btnStart.addEventListener('click', ensurePlay);
+    // Unlock audio/video on first gesture too
+    addPressFeedback(els.btnStart, ()=>{ ensureAudio(); ensurePlay(); });
     window.addEventListener('orientationchange', () => setTimeout(()=>window.scrollTo(0,1), 250));
-
   })();
   </script>
 </body>
