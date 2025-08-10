@@ -139,7 +139,7 @@
         </div>
 
         <div class="card grid">
-          <!-- Theme / Background / Cues / Ambient controls -->
+          <!-- Theme / Background / Audio controls -->
           <div class="row">
             <span class="label">Theme</span>
             <select id="selTheme">
@@ -157,9 +157,19 @@
             <span class="label">Background dim</span>
             <input id="dimSlider" type="range" min="0" max="0.85" step="0.01" value="0.5" class="range">
           </div>
+          <hr style="opacity:.15; width:100%">
 
           <div class="row">
-            <span class="label">Ambient sound</span>
+            <span class="label">Scene audio (use video sound)</span>
+            <label><input id="chkSceneAudio" type="checkbox" checked> On</label>
+          </div>
+          <div class="row">
+            <span class="label">Scene volume</span>
+            <input id="volScene" type="range" min="0" max="1" step="0.01" value="0.5" class="range">
+          </div>
+
+          <div class="row">
+            <span class="label">Ambient noise</span>
             <label><input id="chkAmbient" type="checkbox"> On</label>
           </div>
           <div class="row">
@@ -221,16 +231,18 @@
       timerMinutes: $('#timerMinutes'), timerSets: $('#timerSets'), timerRest: $('#timerRest'),
       btnTimerStart: $('#btnTimerStart'), btnTimerPause: $('#btnTimerPause'), btnTimerStop: $('#btnTimerStop'),
       selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider'),
+      chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
       chkAmbient: $('#chkAmbient'), volAmbient: $('#volAmbient'),
       chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4')
     };
 
-    // ===== Audio: ambient noise, beeps, and voice =====
+    // ===== Audio context =====
     let audioCtx=null, ambientNode=null, ambientGain=null;
     function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
+    function ensurePlay(){ try{ els.bgVideo.play(); }catch{} }
 
-    // Gentle brown-noise generator (looping buffer) -> lowpass -> gain
+    // ===== Ambient noise =====
     function startAmbient(){
       ensureAudio(); if(!audioCtx || ambientNode) return;
       const len = 2 * audioCtx.sampleRate;
@@ -240,7 +252,7 @@
       for (let i=0;i<len;i++){
         const white = Math.random()*2-1;
         lastOut = (lastOut + (0.02 * white)) / 1.02;
-        data[i] = lastOut * 3.5; // brown-ish
+        data[i] = lastOut * 3.5;
       }
       const src = audioCtx.createBufferSource();
       src.buffer = buff; src.loop = true;
@@ -250,10 +262,9 @@
       src.start();
       ambientNode = src; ambientGain = g;
     }
-    function stopAmbient(){ try{ ambientNode?.stop(); }catch{} ambientNode=null; }
-    els.chkAmbient.addEventListener('change', ()=>{ if(els.chkAmbient.checked){ ensureAudio(); startAmbient(); } else { stopAmbient(); } savePrefs(); });
-    els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value); savePrefs(); });
+    function stopAmbient(){ try{ ambientNode?.stop(); }catch{} ambientNode=null; ambientGain=null; }
 
+    // ===== Cues =====
     function beep(freq=440, duration=0.12, gain=0.12){
       if(!els.chkBeeps.checked) return;
       try{
@@ -277,7 +288,7 @@
       try{
         const u = new SpeechSynthesisUtterance(txt);
         u.rate = 1.0; u.pitch = 1.0; u.volume = 0.9;
-        speechSynthesis.cancel(); // avoid queue build-up
+        speechSynthesis.cancel();
         speechSynthesis.speak(u);
       }catch{}
     }
@@ -316,7 +327,7 @@
       });
     }
 
-    // ===== Breathing engine (interval-based) =====
+    // ===== Breathing engine =====
     let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null, lastSpoken=-1;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
     function seq(){
@@ -344,10 +355,9 @@
         const display = Math.max(0, Math.ceil(phaseTimeLeft));
         if (els.chkVoice.checked && display !== lastSpoken){
           lastSpoken = display;
-          if (display > 0 && display <= 5) speak(String(display)); // speak last 5 seconds
+          if (display > 0 && display <= 5) speak(String(display));
         }
         if (phaseTimeLeft <= 0){
-          // phase transition cues
           beep(cur.key==='exhale' ? 520 : 440, 0.10, 0.10);
           vibrate([12,30,12]);
           phaseIndex++;
@@ -368,11 +378,10 @@
     }
     function start(){
       if(running) return;
-      ensureAudio();
-      if(els.chkAmbient.checked) startAmbient();
-      speak('Start');
-      vibrate([20]);
-      beep(660, 0.12, 0.12);
+      ensureAudio(); ensurePlay();
+      if (els.chkSceneAudio.checked){ els.bgVideo.muted = false; els.bgVideo.volume = parseFloat(els.volScene.value || '0.5'); stopAmbient(); }
+      else { els.bgVideo.muted = true; if (els.chkAmbient.checked) startAmbient(); }
+      speak('Start'); vibrate([20]); beep(660, 0.12, 0.12);
       running = true; paused = false; round = 1; cycle = 1; phaseIndex = 0; lastSpoken=-1;
       const s = seq(); phaseTimeLeft = s[0].dur;
       updateHUD(s[0].label, Math.max(0, Math.ceil(phaseTimeLeft)));
@@ -384,24 +393,13 @@
       if(!running) return;
       paused = !paused;
       els.btnPause.textContent = paused ? '▶ Resume' : '⏸️ Pause';
-      beep(paused?350:500, 0.08, 0.08);
-      vibrate([10]);
-      if (paused) speechSynthesis.cancel();
     }
     function stop(){
       running=false; paused=false; clearInterval(interval);
       els.btnStart.disabled = false; els.btnPause.disabled = true; els.btnStop.disabled = true; els.btnPause.textContent='⏸️ Pause';
       updateHUD('Ready',0); document.documentElement.style.setProperty('--progress','0%');
-      beep(260, 0.10, 0.08);
-      vibrate([8,30,8]);
-      speechSynthesis.cancel();
+      speak('Stop');
     }
-
-    // ===== Audio/video unlock helpers =====
-    function ensurePlay(){ try{ els.bgVideo.play(); }catch{} }
-    ['touchend','pointerup','click'].forEach(evt => {
-      document.body.addEventListener(evt, ()=>{ ensureAudio(); ensurePlay(); }, { once:true, passive:true });
-    });
 
     // ===== Theme / Background Video + Prefs =====
     const THEME_MEDIA = {
@@ -409,11 +407,17 @@
       fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4' },
       waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4' }
     };
-    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', ambient:'ms.ambient', ambVol:'ms.ambVol', beeps:'ms.beeps', voice:'ms.voice', vib:'ms.vib' };
+    const PREFS = {
+      theme:'ms.theme', video:'ms.video', dim:'ms.dim',
+      scene:'ms.sceneAudio', sceneVol:'ms.sceneVol',
+      ambient:'ms.ambient', ambVol:'ms.ambVol', beeps:'ms.beeps', voice:'ms.voice', vib:'ms.vib'
+    };
     function savePrefs(){
       localStorage.setItem(PREFS.theme, els.selTheme.value);
       localStorage.setItem(PREFS.video, els.chkVideo.checked ? '1':'0');
       localStorage.setItem(PREFS.dim, String(els.dimSlider.value));
+      localStorage.setItem(PREFS.scene, els.chkSceneAudio.checked ? '1':'0');
+      localStorage.setItem(PREFS.sceneVol, String(els.volScene.value));
       localStorage.setItem(PREFS.ambient, els.chkAmbient.checked ? '1':'0');
       localStorage.setItem(PREFS.ambVol, String(els.volAmbient.value));
       localStorage.setItem(PREFS.beeps, els.chkBeeps.checked ? '1':'0');
@@ -425,13 +429,14 @@
       els.chkVideo.checked = localStorage.getItem(PREFS.video) !== '0';
       const d = parseFloat(localStorage.getItem(PREFS.dim) ?? '0.5');
       els.dimSlider.value = isNaN(d) ? 0.5 : d;
+      els.chkSceneAudio.checked = (localStorage.getItem(PREFS.scene) ?? '1') === '1'; // default ON
+      els.volScene.value = localStorage.getItem(PREFS.sceneVol) ?? '0.5';
       els.chkAmbient.checked = localStorage.getItem(PREFS.ambient) === '1';
       els.volAmbient.value = localStorage.getItem(PREFS.ambVol) ?? '0.25';
       els.chkBeeps.checked = localStorage.getItem(PREFS.beeps) !== '0';
       els.chkVoice.checked = localStorage.getItem(PREFS.voice) === '1';
       els.chkVibrate.checked = localStorage.getItem(PREFS.vib) !== '0';
       document.documentElement.style.setProperty('--dim', els.dimSlider.value);
-      if (els.chkAmbient.checked) { ensureAudio(); startAmbient(); }
     }
     function applyTheme(){
       const theme = els.selTheme.value;
@@ -440,22 +445,21 @@
       }
       const m = THEME_MEDIA[theme];
       if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; savePrefs(); return; }
-      const vtag='?v=13';
+      const vtag='?v=15';
       els.bgSrcWebm.src = m.webm + vtag;
       els.bgSrcMp4.src  = m.mp4  + vtag;
       els.bgVideo.load();
       els.bgVideo.style.display='';
-      ensurePlay(); savePrefs();
+      ensurePlay();
+      // Auto-enable scene audio on theme change, and disable ambient
+      els.chkSceneAudio.checked = true;
+      els.chkAmbient.checked = false; stopAmbient();
+      els.bgVideo.muted = false;
+      els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
+      savePrefs();
     }
-    loadPrefs(); applyTheme(); loadPreset();
-    els.selTheme.addEventListener('change', applyTheme);
-    els.chkVideo.addEventListener('change', applyTheme);
-    els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
-    els.chkBeeps.addEventListener('change', savePrefs);
-    els.chkVoice.addEventListener('change', ()=>{ if(!els.chkVoice.checked) speechSynthesis.cancel(); savePrefs(); });
-    els.chkVibrate.addEventListener('change', savePrefs);
 
-    // ===== Bind controls =====
+    // ===== Bind UI =====
     function addPressFeedback(btn, onTrigger){
       if(!btn) return;
       const pressOn = (e)=>{ e.preventDefault(); btn.classList.add('is-pressing'); btn.setAttribute('aria-pressed','true'); };
@@ -475,6 +479,22 @@
     els.btnStop.addEventListener('click', (e)=>{ e.preventDefault(); stop(); });
     els.btnReset.addEventListener('click', (e)=>{ e.preventDefault(); if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); });
 
+    // Scene audio + Ambient interlock
+    els.chkSceneAudio.addEventListener('change', ()=>{
+      if (els.chkSceneAudio.checked){
+        els.bgVideo.muted = false;
+        ensurePlay();
+        els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
+        els.chkAmbient.checked = false; stopAmbient();
+      } else {
+        els.bgVideo.muted = true;
+      }
+      savePrefs();
+    });
+    els.volScene.addEventListener('input', ()=>{ els.bgVideo.volume = parseFloat(els.volScene.value || '0.5'); savePrefs(); });
+    els.chkAmbient.addEventListener('change', ()=>{ if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; } else { stopAmbient(); } savePrefs(); });
+    els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value); savePrefs(); });
+
     // Timer
     let tRun=false, tPause=false, tInt=null, tMs=0, tSet=0, tMode='work';
     const fmt = ms => { const s=Math.max(0,Math.ceil(ms/1000)); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; };
@@ -485,7 +505,7 @@
     }
     function timerStart(){
       if(tRun) return;
-      ensureAudio();
+      ensureAudio(); ensurePlay();
       tRun=true; tPause=false; tMode='work'; tSet=0; tMs=+els.timerMinutes.value*60*1000;
       els.btnTimerPause.disabled=false; els.btnTimerStop.disabled=false;
       updTimer();
@@ -506,22 +526,18 @@
         updTimer();
       },200);
     }
-    function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; beep(420,0.08,0.08); vibrate([10]); }
-    function timerStop(final=false){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); if(final){ beep(280,0.14,0.12); vibrate([15,40,15]); } }
-
-    function applyPrefsSoon(){ savePrefs(); } // debounced if needed
-
-    // Listeners for prefs save
-    ['change','input'].forEach(evt=>{
-      [els.selTheme, els.chkVideo, els.dimSlider, els.chkAmbient, els.volAmbient, els.chkBeeps, els.chkVoice, els.chkVibrate].forEach(el=>{
-        el.addEventListener(evt, applyPrefsSoon);
-      });
-    });
+    function timerPause(){ if(!tRun) return; tPause=!tPause; els.btnTimerPause.textContent = tPause?'Resume':'Pause'; }
+    function timerStop(final=false){ tRun=false; tPause=false; clearInterval(tInt); els.btnTimerPause.textContent='Pause'; els.btnTimerPause.disabled=true; els.btnTimerStop.disabled=true; const pill=document.getElementById('timerPill'); if(pill) pill.remove(); }
 
     // Init
     loadPrefs(); applyTheme(); loadPreset();
     document.getElementById('btnFullscreen').addEventListener('click', ()=>{
       const el=document.documentElement; if(!document.fullscreenElement){ el.requestFullscreen?.(); } else { document.exitFullscreen?.(); }
+    });
+
+    // Global unlock on first gesture
+    ['touchend','pointerup','click'].forEach(evt => {
+      document.body.addEventListener(evt, ()=>{ ensureAudio(); ensurePlay(); }, { once:true, passive:true });
     });
   })();
   </script>
