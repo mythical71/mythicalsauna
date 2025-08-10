@@ -189,10 +189,6 @@
             <span class="label">Vibrate on phase</span>
             <label><input id="chkVibrate" type="checkbox" checked> On</label>
           </div>
-          <div class="row">
-            <span class="label">Fireplace crackle (if no audio)</span>
-            <label><input id="chkCrackle" type="checkbox" checked> On</label>
-          </div>
         </div>
       </div>
 
@@ -235,7 +231,6 @@
       chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
       chkAmbient: $('#chkAmbient'), volAmbient: $('#volAmbient'),
       chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
-      chkCrackle: $('#chkCrackle'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4'),
       glow: $('#themeGlow'),
       btnStart: $('#btnStart'), btnPause: $('#btnPause'), btnStop: $('#btnStop'), btnReset: $('#btnReset'),
@@ -264,7 +259,7 @@
       }
     }
 
-    // ===== Audio context for beeps/voice/ambient/crackle =====
+    // ===== Audio context for beeps/voice/ambient =====
     let audioCtx=null;
     function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
 
@@ -295,52 +290,6 @@
     }
     function stopAmbient(){ try{ ambientNode?.stop(); }catch{} ambientNode=null; ambientGain=null; }
 
-    // Fireplace crackle synth
-    const crackle = {
-      g:null, noise:null, _popTimer:null, running:false,
-      start(){
-        if(this.running || !els.chkCrackle.checked) return;
-        ensureAudio(); if(!audioCtx) return;
-        const len = 2 * audioCtx.sampleRate;
-        const buff = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-        const data = buff.getChannelData(0);
-        let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-        for(let i=0;i<len;i++){
-          const white = Math.random()*2-1;
-          b0 = 0.99886*b0 + white*0.0555179;
-          b1 = 0.99332*b1 + white*0.0750759;
-          b2 = 0.96900*b2 + white*0.1538520;
-          b3 = 0.86650*b3 + white*0.3104856;
-          b4 = 0.55000*b4 + white*0.5329522;
-          b5 = -0.7616*b5 - white*0.0168980;
-          let out = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white*0.5362;
-          out *= 0.08; b6 = white*0.115926;
-          data[i] = out;
-        }
-        const src = audioCtx.createBufferSource(); src.buffer = buff; src.loop = true;
-        const g = audioCtx.createGain(); g.gain.value = parseFloat(els.volScene.value || '0.5') * 0.6;
-        src.connect(g); g.connect(audioCtx.destination); src.start();
-        this.noise = src; this.g = g; this.running = true;
-
-        const makePop = () => {
-          if(!this.running) return;
-          const osc = audioCtx.createOscillator();
-          const eg = audioCtx.createGain();
-          osc.type = 'triangle'; osc.frequency.value = 80 + Math.random()*200;
-          eg.gain.value = 0.0001; osc.connect(eg); eg.connect(audioCtx.destination);
-          const now = audioCtx.currentTime, a=0.002+Math.random()*0.004, d=0.06+Math.random()*0.16;
-          eg.gain.setValueAtTime(0.0001, now);
-          eg.gain.linearRampToValueAtTime(0.18 + Math.random()*0.22, now+a);
-          eg.gain.exponentialRampToValueAtTime(0.0001, now+a+d);
-          osc.start(now); osc.stop(now+a+d+0.05);
-          this._popTimer = setTimeout(makePop, (50 + Math.random()*300));
-        };
-        makePop();
-      },
-      stop(){ this.running=false; try{ this.noise?.stop(); }catch{} this.noise=null; if(this._popTimer) clearTimeout(this._popTimer); try{ this.g?.disconnect(); }catch{} this.g=null; },
-      setVolume(v){ if(this.g) this.g.gain.value = v * 0.6; }
-    };
-
     // Smooth ramp
     function rampVolume(el, to, ms){ return new Promise(resolve=>{
       const from = el.volume; const start = performance.now();
@@ -355,7 +304,7 @@
     };
 
     // Pref keys
-    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol', ambient:'ms.ambient', ambVol:'ms.ambVol', crackle:'ms.crackle' };
+    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol', ambient:'ms.ambient', ambVol:'ms.ambVol' };
 
     // Load prefs
     function loadPrefs(){
@@ -366,7 +315,6 @@
       els.volScene.value = localStorage.getItem(PREFS.sceneVol) ?? '0.5';
       els.chkAmbient.checked = localStorage.getItem(PREFS.ambient) === '1';
       els.volAmbient.value = localStorage.getItem(PREFS.ambVol) ?? '0.25';
-      els.chkCrackle.checked = (localStorage.getItem(PREFS.crackle) ?? '1') === '1';
       els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
     }
     function savePrefs(){
@@ -377,7 +325,6 @@
       localStorage.setItem(PREFS.sceneVol, String(els.volScene.value));
       localStorage.setItem(PREFS.ambient, els.chkAmbient.checked ? '1':'0');
       localStorage.setItem(PREFS.ambVol, String(els.volAmbient.value));
-      localStorage.setItem(PREFS.crackle, els.chkCrackle.checked ? '1':'0');
     }
 
     // Robust theme switcher with fallback + theme glow
@@ -388,9 +335,9 @@
       try{
         const theme = els.selTheme.value;
         if(!els.chkVideo.checked || theme==='none'){
-          els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); return;
+          els.bgVideo.pause(); els.bgVideo.style.display='none'; return;
         }
-        const m = THEME_MEDIA[theme]; if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; crackle.stop(); return; }
+        const m = THEME_MEDIA[theme]; if(!m){ els.bgVideo.pause(); els.bgVideo.style.display='none'; return; }
 
         document.documentElement.style.setProperty('--glow', m.glow || 'rgba(56,189,248,0.35)');
         els.glow.classList.remove('glow-active'); void els.glow.offsetWidth; els.glow.classList.add('glow-active');
@@ -399,7 +346,7 @@
         // half-glow delay to sync swap
         await new Promise(r=>setTimeout(r, 350));
 
-        const vtag='?v=23';
+        const vtag='?v=24';
         let triedMp4=false; let resolved=false;
 
         function cleanup(){
@@ -413,13 +360,8 @@
           els.bgVideo.style.display='';
           ensurePlayMutedFirst();
           // audio mode
-          if(els.chkSceneAudio.checked){
-            els.bgVideo.muted = false;
-            try{ await rampVolume(els.bgVideo, parseFloat(els.volScene.value||'0.5'), 500); }catch{}
-            crackle.stop(); if(theme==='fireplace' && els.chkCrackle.checked){ crackle.start(); crackle.setVolume(parseFloat(els.volScene.value||'0.5')); }
-          }else{
-            els.bgVideo.muted = true; crackle.stop();
-          }
+          els.bgVideo.muted = !els.chkSceneAudio.checked;
+          try{ await rampVolume(els.bgVideo, parseFloat(els.volScene.value||'0.5'), 500); }catch{}
           els.bgVideo.style.opacity=1;
           showToast(`Theme: ${theme.charAt(0).toUpperCase()+theme.slice(1)}`, 700);
         };
@@ -457,24 +399,19 @@
     els.volScene.addEventListener('input', ()=>{
       const v = parseFloat(els.volScene.value || '0.5');
       els.bgVideo.volume = v;
-      crackle.setVolume(v);
       savePrefs();
     });
 
     // Scene audio toggle
     els.chkSceneAudio.addEventListener('change', ()=>{
-      if(els.chkSceneAudio.checked){
-        els.bgVideo.muted = false;
-        ensurePlayMutedFirst();
-      } else {
-        els.bgVideo.muted = true; crackle.stop();
-      }
+      els.bgVideo.muted = !els.chkSceneAudio.checked;
+      ensurePlayMutedFirst();
       savePrefs();
     });
 
     // Ambient toggle/volume
     els.chkAmbient.addEventListener('change', ()=>{
-      if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; crackle.stop(); }
+      if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; }
       else { stopAmbient(); }
       savePrefs();
     });
@@ -484,7 +421,7 @@
     els.selTheme.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
     els.chkVideo.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
 
-    // Start/Pause/Stop breathing minimal (kept simple here)
+    // Start/Pause/Stop breathing (same as v23)
     let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
     function seq(){ const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value]; return arr.map((v,i)=>({dur:Math.max(0,v),...phasesBase[i]})).filter(p=>p.dur>0); }
@@ -495,7 +432,7 @@
     function stop(){ running=false; paused=false; clearInterval(interval); els.btnStart.disabled=false; els.btnPause.disabled=true; els.btnStop.disabled=true; els.btnPause.textContent='⏸️ Pause'; updateHUD('Ready',0); }
     els.btnStart.addEventListener('click', start); els.btnPause.addEventListener('click', pause); els.btnStop.addEventListener('click', stop); els.btnReset.addEventListener('click', ()=>{ if(!running){ round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); }});
 
-    // Timer quick bind (unchanged)
+    // Timer quick bind
     let tRun=false,tPause=false,tInt=null,tMs=0,tSet=0,tMode='work';
     function fmt(ms){const s=Math.max(0,Math.ceil(ms/1000));const m=Math.floor(s/60);const ss=String(s%60).padStart(2,'0');return `${String(m).padStart(2,'0')}:${ss}`;}
     function updTimer(){ let pill=document.getElementById('timerPill'); if(!pill){ pill=document.createElement('div'); pill.id='timerPill'; pill.style.cssText='position:fixed;top:10px;right:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-variant-numeric:tabular-nums;z-index:2'; document.body.appendChild(pill);} pill.textContent=`⏱ ${fmt(tMs)} (Set ${tSet+1}/${+els.timerSets.value}${tMode==='rest'?' • Rest':''})`; }
@@ -511,7 +448,7 @@
     ['pointerup','touchend','click'].forEach(evt=>{
       document.addEventListener(evt, ()=>{
         ensureAudio();
-        if(els.chkSceneAudio.checked){ els.bgVideo.muted=false; } else { els.bgVideo.muted=true; }
+        els.bgVideo.muted = !els.chkSceneAudio.checked;
         els.bgVideo.play().catch(()=>{});
       }, { once:true, passive:true });
     });
