@@ -172,10 +172,6 @@
             <span class="label">Ambient noise</span>
             <label><input id="chkAmbient" type="checkbox"> On</label>
           </div>
-          <div class="row">
-            <span class="label">Ambient volume</span>
-            <input id="volAmbient" type="range" min="0" max="1" step="0.01" value="0.25" class="range">
-          </div>
 
           <div class="row">
             <span class="label">Cue beeps</span>
@@ -229,7 +225,7 @@
       cycles: $('#cycles'), rounds: $('#rounds'),
       selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider'),
       chkSceneAudio: $('#chkSceneAudio'), volScene: $('#volScene'),
-      chkAmbient: $('#chkAmbient'), volAmbient: $('#volAmbient'),
+      chkAmbient: $('#chkAmbient'),
       chkBeeps: $('#chkBeeps'), chkVoice: $('#chkVoice'), chkVibrate: $('#chkVibrate'),
       bgVideo: $('#bgVideo'), bgSrcWebm: $('#bgSrcWebm'), bgSrcMp4: $('#bgSrcMp4'),
       glow: $('#themeGlow'),
@@ -258,7 +254,7 @@
       }
     }
 
-    // ===== Presets (FIXED) =====
+    // ===== Presets =====
     const PRESET_STORAGE_KEY = 'ms.preset';
     function updateValLabels(){
       els.vIn.textContent = els.rIn.value;
@@ -269,9 +265,7 @@
     ['input','change'].forEach(evt => {
       [els.rIn, els.rH1, els.rEx, els.rH2].forEach(r => r.addEventListener(evt, updateValLabels));
       [els.rIn, els.rH1, els.rEx, els.rH2, els.cycles, els.rounds].forEach(ctrl => ctrl.addEventListener(evt, ()=>{
-        // deselect active chip when user tweaks values
         [...els.presets.children].forEach(c=>c.classList.remove('active'));
-        // persist as "Custom"
         savePreset({ name:'Custom',
           inhale:+els.rIn.value, hold1:+els.rH1.value, exhale:+els.rEx.value, hold2:+els.rH2.value,
           cycles:+els.cycles.value, rounds:+els.rounds.value
@@ -295,7 +289,6 @@
         if(raw){
           const p = JSON.parse(raw);
           applyPreset(p);
-          // Try to mark matching chip active
           [...els.presets.children].forEach(c => {
             const data = JSON.parse(c.dataset.preset);
             if (data.name === p.name && p.name !== 'Custom'){ c.classList.add('active'); }
@@ -312,7 +305,6 @@
         chip.classList.add('active');
         const p = JSON.parse(chip.dataset.preset);
         if(p.name === 'Custom'){
-          // Save current as custom
           savePreset({ name:'Custom',
             inhale:+els.rIn.value, hold1:+els.rH1.value, exhale:+els.rEx.value, hold2:+els.rH2.value,
             cycles:+els.cycles.value, rounds:+els.rounds.value
@@ -328,7 +320,7 @@
     let audioCtx=null;
     function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
 
-    // Ambient (simple pink noise bed)
+    // Ambient (fixed volume)
     let ambientNode=null, ambientGain=null;
     function startAmbient(){
       ensureAudio(); if(!audioCtx || ambientNode) return;
@@ -349,7 +341,7 @@
         data[i] = out;
       }
       const src = audioCtx.createBufferSource(); src.buffer = buff; src.loop = true;
-      const g = audioCtx.createGain(); g.gain.value = parseFloat(els.volAmbient.value || '0.25');
+      const g = audioCtx.createGain(); g.gain.value = 0.25; // fixed gentle level
       src.connect(g); g.connect(audioCtx.destination); src.start();
       ambientNode = src; ambientGain = g;
     }
@@ -369,7 +361,7 @@
     };
 
     // Pref keys
-    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol', ambient:'ms.ambient', ambVol:'ms.ambVol' };
+    const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol', ambient:'ms.ambient' };
 
     // Load prefs
     function loadPrefs(){
@@ -379,7 +371,6 @@
       els.chkSceneAudio.checked = (localStorage.getItem(PREFS.scene) ?? '1') === '1';
       els.volScene.value = localStorage.getItem(PREFS.sceneVol) ?? '0.5';
       els.chkAmbient.checked = localStorage.getItem(PREFS.ambient) === '1';
-      els.volAmbient.value = localStorage.getItem(PREFS.ambVol) ?? '0.25';
       els.bgVideo.volume = parseFloat(els.volScene.value || '0.5');
     }
     function savePrefs(){
@@ -389,7 +380,6 @@
       localStorage.setItem(PREFS.scene, els.chkSceneAudio.checked ? '1':'0');
       localStorage.setItem(PREFS.sceneVol, String(els.volScene.value));
       localStorage.setItem(PREFS.ambient, els.chkAmbient.checked ? '1':'0');
-      localStorage.setItem(PREFS.ambVol, String(els.volAmbient.value));
     }
 
     // Robust theme switcher with fallback + theme glow
@@ -410,7 +400,7 @@
         els.bgVideo.style.opacity = 0;
         await new Promise(r=>setTimeout(r, 350));
 
-        const vtag='?v=25';
+        const vtag='?v=26';
         let triedMp4=false; let resolved=false;
 
         function cleanup(){
@@ -454,9 +444,21 @@
     // ===== Bindings =====
     els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
     els.volScene.addEventListener('input', ()=>{ els.bgVideo.volume = parseFloat(els.volScene.value||'0.5'); savePrefs(); });
-    els.chkSceneAudio.addEventListener('change', ()=>{ els.bgVideo.muted = !els.chkSceneAudio.checked; ensurePlayMutedFirst(); savePrefs(); });
-    els.chkAmbient.addEventListener('change', ()=>{ if(els.chkAmbient.checked){ startAmbient(); els.chkSceneAudio.checked=false; els.bgVideo.muted=true; } else { stopAmbient(); } savePrefs(); });
-    els.volAmbient.addEventListener('input', ()=>{ if(ambientGain) ambientGain.gain.value = parseFloat(els.volAmbient.value||'0.25'); savePrefs(); });
+    els.chkSceneAudio.addEventListener('change', ()=>{
+      els.bgVideo.muted = !els.chkSceneAudio.checked;
+      ensurePlayMutedFirst();
+      savePrefs();
+    });
+    els.chkAmbient.addEventListener('change', ()=>{
+      if(els.chkAmbient.checked){
+        startAmbient();
+        els.chkSceneAudio.checked=false;
+        els.bgVideo.muted=true;
+      } else {
+        stopAmbient();
+      }
+      savePrefs();
+    });
     els.selTheme.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
     els.chkVideo.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
 
