@@ -12,7 +12,7 @@
   <style>
     :root{
       --bg:#0b1020; --card:#121a33; --accent:#22d3ee; --accent2:#a78bfa; --text:#e6f0ff; --muted:#90a4c8;
-      --progress:0%; --footer-h:92px; --dim:0.45; /* stronger default dim */
+      --progress:0%; --footer-h:92px; --dim:0.45;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -20,11 +20,9 @@
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,"Helvetica Neue",Arial;
       color:var(--text); background:var(--bg);
     }
-    /* Background video lives behind everything */
     .app{max-width:900px; margin:0 auto; padding:16px;
          padding-bottom:calc(var(--footer-h) + env(safe-area-inset-bottom) + 8px);
          position:relative; z-index:1}
-    /* Adjustable dim so text pops over video */
     body::before{content:""; position:fixed; inset:0; background:rgba(0,0,0,var(--dim)); z-index:0}
     header{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0}
     header h1{font-size:22px; margin:0; letter-spacing:.5px}
@@ -61,6 +59,10 @@
     .phase{font-size:14px; color:var(--muted); letter-spacing:.25px}
     .count{font-size:clamp(40px,10vw,72px); font-weight:900; line-height:1.05}
     .hint{font-size:12px; color:var(--muted)}
+    .chips{display:flex; flex-wrap:wrap; gap:8px}
+    .chip{padding:8px 12px; border-radius:999px; background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.1); cursor:pointer; font-weight:600}
+    .chip.active{outline:2px solid var(--accent)}
     .twocol{display:grid; grid-template-columns:1fr 1fr; gap:12px}
     @media (max-width: 900px){ .twocol{grid-template-columns:1fr} .circle-wrap{margin:8px 0} }
     .footer{position:fixed; left:0; right:0; bottom:0; height:var(--footer-h);
@@ -78,7 +80,7 @@
   </style>
 </head>
 <body>
-  <!-- Fullscreen animated background (sources set by JS) -->
+  <!-- Fullscreen animated background -->
   <video id="bgVideo" autoplay muted loop playsinline
          style="position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:-1; background:#000;">
     <source id="bgSrcWebm" src="" type="video/webm">
@@ -105,6 +107,17 @@
         </div>
       </div>
     </section>
+
+    <!-- Presets -->
+    <div class="card">
+      <div class="chips" id="presets">
+        <button class="chip" data-preset='{"name":"Box 4-4-4-4","inhale":4,"hold1":4,"exhale":4,"hold2":4,"cycles":12,"rounds":3}'>Box 4-4-4-4</button>
+        <button class="chip" data-preset='{"name":"4-7-8","inhale":4,"hold1":7,"exhale":8,"hold2":0,"cycles":8,"rounds":3}'>4-7-8</button>
+        <button class="chip" data-preset='{"name":"Sauna Calm","inhale":5,"hold1":0,"exhale":7,"hold2":0,"cycles":12,"rounds":3}'>Sauna Calm</button>
+        <button class="chip" data-preset='{"name":"Wim Hof (guided)","inhale":2,"hold1":0,"exhale":2,"hold2":0,"cycles":30,"rounds":3}'>Wim Hof (guided)</button>
+        <button class="chip" data-preset='{"name":"Custom"}'>Custom</button>
+      </div>
+    </div>
 
     <section class="grid">
       <div class="twocol">
@@ -185,8 +198,7 @@
   </div>
 
   <script>
-  // --- elements ---
-  const $ = sel => document.querySelector(sel);
+  const $ = s => document.querySelector(s);
   const els = {
     rIn: $('#rIn'), rH1: $('#rH1'), rEx: $('#rEx'), rH2: $('#rH2'),
     vIn: $('#vIn'), vH1: $('#vH1'), vEx: $('#vEx'), vH2: $('#vH2'),
@@ -198,11 +210,52 @@
     selTheme: $('#selTheme'), chkVideo: $('#chkVideo'), dimSlider: $('#dimSlider')
   };
 
-  // --- breathing logic (compact) ---
+  // ===== Presets (with persistence) =====
+  const PRESET_KEYS = ['inhale','hold1','exhale','hold2','cycles','rounds'];
+  const PRESET_STORAGE_KEY = 'ms.preset';
+  const presetsEl = document.getElementById('presets');
+
+  function loadPresetFromStorage(){
+    try{
+      const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+      if(!raw) return;
+      const p = JSON.parse(raw);
+      PRESET_KEYS.forEach(k => { if(p[k] != null){ const map={inhale:'rIn',hold1:'rH1',exhale:'rEx',hold2:'rH2',cycles:'cycles',rounds:'rounds'}; els[map[k]].value = p[k]; });
+      updateVals();
+      // Mark matching chip active (by name if present)
+      if(p.name){
+        [...presetsEl.children].forEach(c => c.classList.toggle('active', c.textContent.trim()===p.name));
+      }
+    }catch(e){/* ignore */}
+  }
+
+  function savePresetToStorage(p){ try{ localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(p)); }catch(e){} }
+
+  if (presetsEl) {
+    presetsEl.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      [...presetsEl.children].forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const p = JSON.parse(chip.dataset.preset);
+      if (p.name === 'Custom') { savePresetToStorage({ name:'Custom' }); return; }
+      if (p.inhale != null)  els.rIn.value   = p.inhale;
+      if (p.hold1  != null)  els.rH1.value   = p.hold1;
+      if (p.exhale != null)  els.rEx.value   = p.exhale;
+      if (p.hold2  != null)  els.rH2.value   = p.hold2;
+      if (p.cycles != null)  els.cycles.value= p.cycles;
+      if (p.rounds != null)  els.rounds.value= p.rounds;
+      updateVals();
+      savePresetToStorage(p);
+    });
+  }
+
+  // ===== Breathing logic =====
   let running=false, paused=false, loopHandle=null, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0;
   const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
   function updateVals(){ els.vIn.textContent=els.rIn.value; els.vH1.textContent=els.rH1.value; els.vEx.textContent=els.rEx.value; els.vH2.textContent=els.rH2.value; document.documentElement.style.setProperty('--progress','0%'); }
   [els.rIn,els.rH1,els.rEx,els.rH2].forEach(r=>r.addEventListener('input', updateVals));
+
   function totalPhaseSeconds(){ const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value]; return arr.map((v,i)=>({dur:v,...phasesBase[i]})).filter(p=>p.dur>0||p.key==='inhale'||p.key==='exhale'); }
   function loop(){ if(!running) return; const seq=totalPhaseSeconds(); const phase=seq[phaseIndex % seq.length]; if(!paused){ phaseTimeLeft-=0.1; updateScreen(phase.label, Math.max(0, Math.ceil(phaseTimeLeft))); progressUpdate(); if(phaseTimeLeft<=0){ nextPhase(seq); } } loopHandle=setTimeout(loop,100); }
   function nextPhase(seq){ phaseIndex++; if(phaseIndex % seq.length===0){ cycle++; if(cycle>+els.cycles.value){ round++; if(round>+els.rounds.value){ return stop(); } cycle=1; } } const next=seq[phaseIndex % seq.length]; phaseTimeLeft=next.dur; }
@@ -216,82 +269,76 @@
   $('#btnStop').addEventListener('click', stop);
   $('#btnReset').addEventListener('click', ()=>{ if(running) return; round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateScreen('Ready',0); });
 
-  // --- timer (simple) ---
+  // ===== Timer (simple) =====
   let timerRunning=false, timerPaused=false, timerInterval=null, timerMsLeft=0, timerSetIndex=0, timerMode='work';
   function formatMMSS(ms){ const s=Math.max(0,Math.ceil(ms/1000)); const m=Math.floor(s/60); const ss=String(s%60).padStart(2,'0'); return `${String(m).padStart(2,'0')}:${ss}`; }
   function updateTimerHUD(){ $('#timerMMSS').textContent=formatMMSS(timerMsLeft); const totalSets=+els.timerSets.value; $('#timerSet').textContent=`(Set ${Math.min(timerSetIndex+1,totalSets)}/${totalSets}${timerMode==='rest'?' • Rest':''})`; $('#timerStatus').classList.remove('hidden'); }
   function startTimer(){ if(timerRunning) return; timerRunning=true; timerPaused=false; $('#btnTimerStart').disabled=true; $('#btnTimerPause').disabled=false; $('#btnTimerStop').disabled=false; timerMode='work'; timerSetIndex=0; timerMsLeft=+els.timerMinutes.value*60*1000; updateTimerHUD(); tickTimer(); timerInterval=setInterval(tickTimer,200); }
-  function tickTimer(){ if(!timerRunning||timerPaused) return; timerMsLeft-=200; if(timerMsLeft<=0){ if(timerMode==='work'){ const restMin=+els.timerRest.value; const totalSets=+els.timerSets.value; if(restMin>0){ timerMode='rest'; timerMsLeft=restMin*60*1000; updateTimerHUD(); return; } else { timerSetIndex++; if(timerSetIndex>=totalSets){ return stopTimer(); } timerMode='work'; timerMsLeft=+els.timerMinutes.value*60*1000; updateTimerHUD(); return; } } else { const totalSets=+els.timerSets.value; timerSetIndex++; if(timerSetIndex>=totalSets){ return stopTimer(); } timerMode='work'; timerMsLeft=+els.timerMinutes.value*60*1000; } } updateTimerHUD(); }
+  function tickTimer(){ if(!timerRunning||timerPaused) return; timerMsLeft-=200; if(timerMsLeft<=0){ if(timerMode==='work'){ const restMin=+els.timerRest.value; const totalSets=+els.timerSets.value; if(restMin>0){ timerMode='rest'; timerMsLeft=restMin*60*1000; updateTimerHUD(); return; } else { timerSetIndex++; if(timerSetIndex>=totalSets){ return stopTimer(); } timerMode='work'; timerMsLeft=+els.timerMinutes.value*60*1000; updateTimerHUD(); return; } } else { const totalSets=+els.timerSets.value; if(++timerSetIndex>=totalSets){ return stopTimer(); } timerMode='work'; timerMsLeft=+els.timerMinutes.value*60*1000; } } updateTimerHUD(); }
   function pauseTimer(){ if(!timerRunning) return; timerPaused=!timerPaused; $('#btnTimerPause').textContent= timerPaused? 'Resume':'Pause'; }
   function stopTimer(){ timerRunning=false; timerPaused=false; clearInterval(timerInterval); $('#btnTimerStart').disabled=false; $('#btnTimerPause').disabled=true; $('#btnTimerStop').disabled=true; $('#timerStatus').classList.add('hidden'); }
   $('#btnTimerStart').addEventListener('click', startTimer);
   $('#btnTimerPause').addEventListener('click', pauseTimer);
   $('#btnTimerStop').addEventListener('click', stopTimer);
 
-  // --- theme / background video ---
+  // ===== Theme / Background Video (with persistence) =====
   const bgVideo = document.getElementById('bgVideo');
   const bgSrcWebm = document.getElementById('bgSrcWebm');
   const bgSrcMp4  = document.getElementById('bgSrcMp4');
-
   const THEME_MEDIA = {
     ocean:     { webm: 'media/ocean.webm',     mp4: 'media/ocean.mp4' },
     fireplace: { webm: 'media/fireplace.webm', mp4: 'media/fireplace.mp4' },
     waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4' }
   };
-
-  const selTheme = els.selTheme, chkVideo = els.chkVideo, dimSlider = els.dimSlider;
-
+  const PREFS = {
+    theme:  'ms.theme',
+    video:  'ms.video',
+    dim:    'ms.dim'
+  };
   function savePrefs(){
-    localStorage.setItem('ms.theme', selTheme.value);
-    localStorage.setItem('ms.video', chkVideo.checked ? '1':'0');
-    localStorage.setItem('ms.dim', String(dimSlider.value));
+    localStorage.setItem(PREFS.theme, els.selTheme.value);
+    localStorage.setItem(PREFS.video, els.chkVideo.checked ? '1':'0');
+    localStorage.setItem(PREFS.dim, String(els.dimSlider.value));
   }
   function loadPrefs(){
-    selTheme.value = localStorage.getItem('ms.theme') || 'ocean';
-    chkVideo.checked = localStorage.getItem('ms.video') !== '0';
-    const d = parseFloat(localStorage.getItem('ms.dim') ?? '0.45');
-    dimSlider.value = isNaN(d) ? 0.45 : d;
-    document.documentElement.style.setProperty('--dim', dimSlider.value);
+    els.selTheme.value = localStorage.getItem(PREFS.theme) || 'ocean';
+    els.chkVideo.checked = localStorage.getItem(PREFS.video) !== '0';
+    const d = parseFloat(localStorage.getItem(PREFS.dim) ?? '0.45');
+    els.dimSlider.value = isNaN(d) ? 0.45 : d;
+    document.documentElement.style.setProperty('--dim', els.dimSlider.value);
   }
-
   async function ensureBgVideo(){ try { await bgVideo?.play(); } catch(_) {} }
-
   function applyTheme(){
-    const theme = selTheme.value;
-    if (!chkVideo.checked || theme === 'none') {
+    const theme = els.selTheme.value;
+    if (!els.chkVideo.checked || theme === 'none') {
       bgVideo.pause(); bgVideo.style.display = 'none'; savePrefs(); return;
     }
     const m = THEME_MEDIA[theme];
     if (!m) { bgVideo.pause(); bgVideo.style.display = 'none'; savePrefs(); return; }
-    const vtag='?v=4'; // cache-bust
+    const vtag='?v=5'; // cache-bust
     bgSrcWebm.src = m.webm + vtag;
     bgSrcMp4.src  = m.mp4  + vtag;
     bgVideo.load();
     bgVideo.style.display = '';
     ensureBgVideo().finally(savePrefs);
   }
-
   // init
   loadPrefs();
   applyTheme();
-
-  selTheme.addEventListener('change', applyTheme);
-  chkVideo.addEventListener('change', applyTheme);
-  dimSlider.addEventListener('input', () => {
-    document.documentElement.style.setProperty('--dim', dimSlider.value);
+  loadPresetFromStorage(); // apply last used preset on load
+  // listeners
+  els.selTheme.addEventListener('change', applyTheme);
+  els.chkVideo.addEventListener('change', applyTheme);
+  els.dimSlider.addEventListener('input', () => {
+    document.documentElement.style.setProperty('--dim', els.dimSlider.value);
     savePrefs();
   });
-
-  // Retry video playback after user gesture (mobile)
+  // Retry playback after user gesture
   $('#btnStart').addEventListener('click', () => { ensureBgVideo(); });
-
   // Orientation tweak
   window.addEventListener('orientationchange', () => setTimeout(()=>window.scrollTo(0,1), 250));
-
-  // Service worker (optional if sw.js present)
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(()=>{});
-  }
+  // SW (optional)
+  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
   </script>
 </body>
 </html>
