@@ -230,7 +230,7 @@
       presets: document.getElementById('presets')
     };
 
-    // ===== Helpers =====
+    // ===== UI helpers =====
     function showToast(msg, ms=900){
       els.toast.textContent = msg;
       els.toast.style.display='block';
@@ -247,6 +247,35 @@
         });
       }
     }
+
+    // ===== Audio (beeps) & Voice =====
+    let audioCtx=null;
+    function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
+    function beep(freq=880, ms=120, gain=0.05){
+      if(!els.chkBeeps.checked) return;
+      ensureAudio(); if(!audioCtx) return;
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.frequency.value = freq;
+      o.type = 'sine';
+      const t0 = audioCtx.currentTime;
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(gain, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + ms/1000);
+      o.connect(g).connect(audioCtx.destination);
+      o.start();
+      o.stop(t0 + ms/1000 + 0.02);
+    }
+    function speak(text){
+      if(!els.chkVoice.checked) return;
+      try{
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.05; u.pitch = 1; u.volume = 1;
+        speechSynthesis.speak(u);
+      }catch{}
+    }
+    function vibrate(ms=25){ if(els.chkVibrate.checked && navigator.vibrate) navigator.vibrate(ms); }
 
     // ===== Presets =====
     const PRESET_STORAGE_KEY = 'ms.preset';
@@ -323,7 +352,7 @@
       waterfall: { webm: 'media/waterfall.webm', mp4: 'media/waterfall.mp4', glow:'rgba(45,212,191,0.35)' }
     };
 
-    // Pref keys (ambient removed)
+    // Pref keys
     const PREFS = { theme:'ms.theme', video:'ms.video', dim:'ms.dim', scene:'ms.sceneAudio', sceneVol:'ms.sceneVol' };
 
     // Load prefs
@@ -361,7 +390,7 @@
         els.bgVideo.style.opacity = 0;
         await new Promise(r=>setTimeout(r, 350));
 
-        const vtag='?v=27';
+        const vtag='?v=28';
         let triedMp4=false; let resolved=false;
 
         function cleanup(){
@@ -402,29 +431,70 @@
       }
     }
 
-    // ===== Bindings =====
-    els.dimSlider.addEventListener('input', ()=>{ document.documentElement.style.setProperty('--dim', els.dimSlider.value); savePrefs(); });
-    els.volScene.addEventListener('input', ()=>{ els.bgVideo.volume = parseFloat(els.volScene.value||'0.5'); savePrefs(); });
-    els.chkSceneAudio.addEventListener('change', ()=>{
-      els.bgVideo.muted = !els.chkSceneAudio.checked;
-      ensurePlayMutedFirst();
-      savePrefs();
-    });
-    els.selTheme.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
-    els.chkVideo.addEventListener('change', ()=>{ savePrefs(); applyTheme(); });
-
-    // Start/Pause/Stop breathing
-    let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null;
+    // ===== Breathing Engine + cues =====
+    let running=false, paused=false, round=0, cycle=0, phaseIndex=0, phaseTimeLeft=0, interval=null, lastSecond=-1;
     const phasesBase=[{key:'inhale',label:'Inhale'},{key:'hold1',label:'Hold'},{key:'exhale',label:'Exhale'},{key:'hold2',label:'Hold'}];
     function seq(){ const arr=[+els.rIn.value,+els.rH1.value,+els.rEx.value,+els.rH2.value]; return arr.map((v,i)=>({dur:Math.max(0,v),...phasesBase[i]})).filter(p=>p.dur>0); }
     function updateHUD(label,count){ $('#phase').textContent=label; $('#counter').textContent=count; $('#roundsHint').textContent=`Rounds: ${round||0} • Cycle: ${cycle||0}`; }
-    function tick(){ const s=seq(); if(!s.length) return; const cur=s[phaseIndex%s.length]; if(!paused){ phaseTimeLeft-=0.2; const d=Math.max(0,Math.ceil(phaseTimeLeft)); if(phaseTimeLeft<=0){ phaseIndex++; if(phaseIndex%s.length===0){ cycle++; if(cycle>+$('#cycles').value){ round++; if(round>+$('#rounds').value){ stop(); return; } cycle=1; } } const nxt=s[phaseIndex%s.length]; phaseTimeLeft=nxt.dur; updateHUD(nxt.label,Math.ceil(phaseTimeLeft)); } else updateHUD(cur.label,d); }}
-    function start(){ if(running) return; running=true; paused=false; round=1; cycle=1; phaseIndex=0; const s=seq(); phaseTimeLeft=s[0].dur; updateHUD(s[0].label,Math.ceil(phaseTimeLeft)); interval=setInterval(tick,200); els.btnStart.disabled=true; els.btnPause.disabled=false; els.btnStop.disabled=false; }
+    function onPhaseStart(nxt){
+      lastSecond = -1;
+      if(els.chkVibrate.checked) vibrate(30);
+      if(els.chkBeeps.checked) { beep(660, 120, 0.06); setTimeout(()=>beep(880,100,0.05),110); }
+      if(els.chkVoice.checked){ speak(nxt.label); }
+    }
+    function perSecondCue(secLeft){
+      if(secLeft !== lastSecond){
+        lastSecond = secLeft;
+        if(els.chkBeeps.checked) beep(800, 90, 0.04);
+        if(els.chkVoice.checked && secLeft<=3 && secLeft>0){ speak(String(secLeft)); }
+      }
+    }
+    function tick(){
+      const s=seq(); if(!s.length) return;
+      const cur=s[phaseIndex%s.length];
+      if(!paused){
+        phaseTimeLeft-=0.2;
+        const d=Math.max(0,Math.ceil(phaseTimeLeft));
+        perSecondCue(d);
+        if(phaseTimeLeft<=0){
+          phaseIndex++;
+          if(phaseIndex%s.length===0){
+            cycle++;
+            if(cycle>+$('#cycles').value){
+              round++;
+              if(round>+$('#rounds').value){ stop(); return; }
+              cycle=1;
+            }
+          }
+          const nxt=s[phaseIndex%s.length];
+          phaseTimeLeft=nxt.dur;
+          onPhaseStart(nxt);
+          updateHUD(nxt.label,Math.ceil(phaseTimeLeft));
+        } else {
+          updateHUD(cur.label,d);
+        }
+      } else {
+        const d=Math.max(0,Math.ceil(phaseTimeLeft));
+        updateHUD(cur.label,d);
+      }
+    }
+    function start(){
+      if(running) return;
+      running=true; paused=false; round=1; cycle=1; phaseIndex=0;
+      const s=seq(); phaseTimeLeft=s[0].dur; onPhaseStart(s[0]);
+      updateHUD(s[0].label,Math.ceil(phaseTimeLeft));
+      interval=setInterval(tick,200);
+      els.btnStart.disabled=true; els.btnPause.disabled=false; els.btnStop.disabled=false;
+    }
     function pause(){ if(!running) return; paused=!paused; els.btnPause.textContent=paused?'▶ Resume':'⏸️ Pause'; }
-    function stop(){ running=false; paused=false; clearInterval(interval); els.btnStart.disabled=false; els.btnPause.disabled=true; els.btnStop.disabled=true; els.btnPause.textContent='⏸️ Pause'; updateHUD('Ready',0); }
-    els.btnStart.addEventListener('click', start); els.btnPause.addEventListener('click', pause); els.btnStop.addEventListener('click', stop); els.btnReset.addEventListener('click', ()=>{ if(!running){ round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); }});
+    function stop(){ running=false; paused=false; clearInterval(interval); els.btnStart.disabled=false; els.btnPause.disabled=true; els.btnStop.disabled=true; els.btnPause.textContent='⏸️ Pause'; updateHUD('Ready',0); window.speechSynthesis?.cancel(); }
 
-    // Timer quick bind
+    els.btnStart.addEventListener('click', start);
+    els.btnPause.addEventListener('click', pause);
+    els.btnStop.addEventListener('click', stop);
+    els.btnReset.addEventListener('click', ()=>{ if(!running){ round=0; cycle=0; phaseIndex=0; phaseTimeLeft=0; updateHUD('Ready',0); }});
+
+    // ===== Session Timer =====
     let tRun=false,tPause=false,tInt=null,tMs=0,tSet=0,tMode='work';
     function fmt(ms){const s=Math.max(0,Math.ceil(ms/1000));const m=Math.floor(s/60);const ss=String(s%60).padStart(2,'0');return `${String(m).padStart(2,'0')}:${ss}`;}
     function updTimer(){ let pill=document.getElementById('timerPill'); if(!pill){ pill=document.createElement('div'); pill.id='timerPill'; pill.style.cssText='position:fixed;top:10px;right:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.2);padding:6px 10px;border-radius:999px;font-variant-numeric:tabular-nums;z-index:2'; document.body.appendChild(pill);} pill.textContent=`⏱ ${fmt(tMs)} (Set ${tSet+1}/${+els.timerSets.value}${tMode==='rest'?' • Rest':''})`; }
@@ -434,15 +504,20 @@
     els.btnTimerStart.addEventListener('click', timerStart); els.btnTimerPause.addEventListener('click', timerPause); els.btnTimerStop.addEventListener('click', timerStop);
 
     // ===== Init =====
+    function firstGestureInit(){
+      ensureAudio();
+      els.bgVideo.muted = !els.chkSceneAudio.checked;
+      els.bgVideo.play().catch(()=>{});
+      document.removeEventListener('pointerup', firstGestureInit);
+      document.removeEventListener('touchend', firstGestureInit);
+      document.removeEventListener('click', firstGestureInit);
+    }
     loadPrefs();
     loadPreset();
     applyTheme();
-    ['pointerup','touchend','click'].forEach(evt=>{
-      document.addEventListener(evt, ()=>{
-        els.bgVideo.muted = !els.chkSceneAudio.checked;
-        els.bgVideo.play().catch(()=>{});
-      }, { once:true, passive:true });
-    });
+    document.addEventListener('pointerup', firstGestureInit, { passive:true });
+    document.addEventListener('touchend', firstGestureInit, { passive:true });
+    document.addEventListener('click', firstGestureInit, { passive:true });
   })();
   </script>
 </body>
